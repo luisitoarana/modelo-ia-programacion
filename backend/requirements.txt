@@ -1,0 +1,29 @@
+# --- Framework web ---
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+
+# --- Validación y configuración ---
+pydantic==2.10.3
+pydantic-settings==2.6.1
+email-validator==2.2.0
+
+# --- Base de datos ---
+SQLAlchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+
+# --- HTTP async para LLMs ---
+httpx==0.28.1
+
+# --- Seguridad / JWT / cifrado ---
+python-jose[cryptography]==3.3.0
+bcrypt==4.2.1
+cryptography==44.0.0
+
+# --- Logging y utilidades ---
+python-multipart==0.0.20
+python-dotenv==1.0.1
+
+# --- Testing (dev) ---
+pytest==8.3.4
+pytest-asyncio==0.24.0

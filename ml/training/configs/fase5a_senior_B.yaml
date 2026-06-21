@@ -1,0 +1,55 @@
+# ════════════════════════════════════════════════════════════════════
+# Fase 5a — SFT con foco en revisión y refactorización (senior)
+# ════════════════════════════════════════════════════════════════════
+# Sobre el checkpoint de Fase 4. El modelo aprende a CRITICAR código,
+# detectar anti-patrones, bugs sutiles, evaluar seguridad, complejidad.
+#
+# Esta es la fase que diferencia a un "generador de código" de un
+# "programador senior".
+#
+# Tiempo estimado: ~15h en Kaggle T4
+#
+# Después de esta fase viene Fase 5b: DPO multi-criterio (pendiente
+# implementar dpo_multi.py en ml/rlhf/).
+# ════════════════════════════════════════════════════════════════════
+
+fase: 5a
+descripcion: "SFT con foco en revisión, refactorización, seguridad, testing"
+modo: sft
+seed: 46
+
+modelo:
+  preset: sota_b
+
+modelo_base: training/checkpoints/B_fase4/checkpoint_best.pt
+
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
+
+corpus:
+  jsonl: data/dataset_v2.jsonl
+  filtro_tipos:
+    - anti_patron
+    - bug_sutil
+    - evolucion_codigo
+    - seguridad
+    - testing_complejidad
+  val_jsonl: data/dataset_v2_val.jsonl
+
+training:
+  per_device_batch_size: 1
+  grad_accum_steps: 32
+  epocas: 3
+  max_pasos: 15000
+  learning_rate: 5e-5          # más bajo: estamos en refinamiento avanzado
+  min_learning_rate: 5e-6
+  warmup_ratio: 0.05
+  weight_decay: 0.05
+  grad_clip: 1.0
+  dtype: auto
+  gradient_checkpointing: true
+  eval_cada: 250
+  eval_pasos: 50
+  save_cada: 500
+  log_cada: 25
+
+salida: training/checkpoints/B_fase5a

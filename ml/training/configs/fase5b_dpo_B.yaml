@@ -1,0 +1,80 @@
+# ════════════════════════════════════════════════════════════════════
+# Fase 5b — DPO multi-criterio (sobre el checkpoint de Fase 5a).
+#
+# Esta es la última fase de alineamiento del modelo B. El modelo
+# aprende a preferir respuestas con mejores scores de los reward models
+# multi-criterio (SEG/LEG/ESC/ARQ/REN/MAN).
+#
+# Pre-requisitos:
+#   1. Modelo SFT senior (Fase 5a) entrenado:
+#      training/checkpoints/B_fase5a/checkpoint_best.pt
+#
+#   2. Reward models entrenados (Fase B del sistema RLAIF):
+#      python -m ml.rlhf.entrenar_rm --config ml/rlhf/configs/rm_v1.yaml
+#
+#   3. Pares DPO categorizados por dimensión, generados con los reward
+#      models (o juez LLM de fallback). Estructura esperada:
+#        data/dpo_v2_SEG.jsonl  {"prompt", "chosen", "rejected"}
+#        data/dpo_v2_LEG.jsonl
+#        ...
+#      O un solo archivo con campo "dim".
+#
+# Tiempo estimado: ~10h en Kaggle T4 con gradient_checkpointing.
+# ════════════════════════════════════════════════════════════════════
+
+fase: 5b
+descripcion: "DPO multi-criterio (Fase 5b del modelo B)"
+seed: 47
+device: auto
+
+modelo:
+  preset: sota_b   # mismo que Fase 5a
+
+modelo_base: training/checkpoints/B_fase5a/checkpoint_best.pt
+
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
+
+# Pesos por dimensión (alineados con el perfil de asistente educativo)
+pesos_dim:
+  SEG: 1.5
+  ARQ: 1.2
+  MAN: 1.0
+  LEG: 1.0
+  ESC: 0.8
+  REN: 0.8
+
+# β del DPO: cuán fuerte se ata el modelo entrenable al modelo de referencia.
+# β alto = movimientos pequeños (más conservador). β bajo = más libertad
+# de cambiar. 0.1 es el default razonable; subir si el modelo "se rompe".
+beta: 0.1
+
+corpus:
+  # Opción A: un archivo por dimensión
+  por_dimension:
+    SEG: data/dpo_v2_SEG.jsonl
+    LEG: data/dpo_v2_LEG.jsonl
+    ESC: data/dpo_v2_ESC.jsonl
+    ARQ: data/dpo_v2_ARQ.jsonl
+    REN: data/dpo_v2_REN.jsonl
+    MAN: data/dpo_v2_MAN.jsonl
+  # Opción B (alternativa): un solo archivo con campo "dim"
+  # unico: data/dpo_v2.jsonl
+  val_split: 0.05
+
+training:
+  per_device_batch_size: 1     # DPO consume ~2x memoria por el modelo ref
+  grad_accum_steps: 16
+  epocas: 3
+  max_pasos: 5000              # tope de seguridad
+  learning_rate: 5.0e-7        # MUY bajo: alineamiento, no aprendizaje base
+  min_learning_rate: 5.0e-8
+  warmup_ratio: 0.05
+  weight_decay: 0.0            # DPO normalmente sin WD
+  grad_clip: 1.0
+  dtype: auto
+  gradient_checkpointing: true # crítico para DPO (2 forwards + 1 ref)
+  eval_cada: 200
+  save_cada: 500
+  log_cada: 25
+
+salida: training/checkpoints/B_fase5b_dpo

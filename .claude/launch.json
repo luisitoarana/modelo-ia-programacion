@@ -1,0 +1,35 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev:preview"],
+      "autoPort": true
+    },
+    {
+      "name": "app",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-Command",
+        "Set-Location app-desktop; flutter run -d web-server --web-port=5005 --web-hostname=localhost"
+      ],
+      "port": 5005,
+      "autoPort": false
+    },
+    {
+      "name": "lma-dash",
+      "runtimeExecutable": "C:\\Users\\tanyi\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5099",
+        "--directory",
+        "C:\\Users\\tanyi\\OneDrive\\Escritorio\\bot-autonomo\\LMA\\dashboard"
+      ],
+      "port": 5099,
+      "autoPort": false
+    }
+  ]
+}

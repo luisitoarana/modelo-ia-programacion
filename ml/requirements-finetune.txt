@@ -1,0 +1,23 @@
+# Dependencias extra para fine-tuning con QLoRA.
+# Solo necesarias si vas a correr ml/finetune.py.
+# Instala con:
+#   pip install -r ml/requirements-finetune.txt
+
+# Núcleo
+torch>=2.1.0          # ya cubierto en ml/requirements.txt, repetido aquí
+transformers>=4.45.0  # modelos pre-entrenados de HuggingFace
+datasets>=3.0.0       # cargar datasets de HF
+accelerate>=0.34.0    # device placement / multi-GPU
+
+# QLoRA (cuantización 4-bit + adapters LoRA)
+bitsandbytes>=0.43.0  # cuantización 4-bit (Linux/Windows + CUDA)
+peft>=0.13.0          # adapters LoRA/QLoRA
+trl>=0.11.0           # SFTTrainer (training loop optimizado para SFT)
+
+# Utilidades
+sentencepiece>=0.2.0  # tokenizadores de varios modelos
+protobuf>=4.21        # requerido por sentencepiece
+einops>=0.8.0         # operaciones tensoriales (algunos modelos lo piden)
+
+# Opcional pero útil
+tensorboard>=2.16     # ver curvas de entrenamiento en vivo

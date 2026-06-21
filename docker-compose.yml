@@ -1,0 +1,69 @@
+name: sistema-explicador-python-ia
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: explicador_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-sistema_explicador}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: explicador_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-sistema_explicador}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # Exponemos en 8765 para evitar conflicto con otros procesos que
+      # puedan estar usando el clásico 8000 en la PC del usuario.
+      - "8765:8000"
+    volumes:
+      - ./backend:/app
+      - ./datasets:/datasets
+      - ./knowledge_base:/knowledge_base
+      - ./logs:/app/logs
+      # MCP server local — el backend lo lanza como subproceso para
+      # exponer tools (leer/escribir archivos, ejecutar Python, ...).
+      - ./mcp_server:/app/mcp_server
+      # Proyecto montado en solo lectura para el explorador de archivos.
+      - .:/proyecto:ro
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    container_name: explicador_frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8765/api/v1
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  db_data:
+    driver: local

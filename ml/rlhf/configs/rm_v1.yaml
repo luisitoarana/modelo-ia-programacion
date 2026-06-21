@@ -1,0 +1,58 @@
+# ════════════════════════════════════════════════════════════════════
+# Entrenamiento de los 6 Reward Models multi-criterio (Fase B del
+# sistema RLAIF — preparar los reward models propios para el DPO).
+#
+# Pre-requisitos:
+#   1. Dataset etiquetado por jueces LLM:
+#      python -m ml.rlhf.etiquetar_dataset \
+#          --entrada datasets/raw/respuestas_modelo.jsonl \
+#          --salida datasets/etiquetado/scores_v1.jsonl
+#
+#   2. Tokenizer sentencepiece V2 (vocab 16k):
+#      python ml/tokenizer/sp_tokenizer.py train \
+#          --corpus datasets/raw/dataset_v2.jsonl \
+#          --salida ml/tokenizer/artefactos/sp_v2_16k.model \
+#          --vocab-size 16000
+# ════════════════════════════════════════════════════════════════════
+
+seed: 42
+device: auto
+
+modelo:
+  preset: mediano    # ~16M params; cabe en cualquier hardware
+
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
+
+corpus:
+  jsonl: datasets/etiquetado/scores_v1.jsonl
+  val_split: 0.1
+
+# Pesos por dimensión (deciden cuánto pesa cada criterio en la loss
+# combinada). Más alto = más importante. Estos defaults priorizan SEG
+# y ARQ para alinear al perfil "asistente educativo".
+pesos_dim:
+  SEG: 1.5    # Seguridad
+  ARQ: 1.2    # Arquitectura
+  MAN: 1.0    # Mantenibilidad
+  LEG: 1.0    # Legibilidad
+  ESC: 0.8    # Escalabilidad
+  REN: 0.8    # Rendimiento
+
+training:
+  per_device_batch_size: 8
+  grad_accum_steps: 2
+  epocas: 3
+  max_pasos: 0         # 0 = sin tope; usa epocas
+  learning_rate: 1.0e-4
+  min_learning_rate: 1.0e-5
+  warmup_ratio: 0.03
+  weight_decay: 0.05
+  grad_clip: 1.0
+  dtype: auto
+  gradient_checkpointing: false   # RM es chico, no hace falta
+  modo_loss: mse                  # mse | ranking
+  eval_cada: 200
+  save_cada: 500
+  log_cada: 25
+
+salida: training/checkpoints/RM_v1

@@ -1,0 +1,57 @@
+# ════════════════════════════════════════════════════════════════════
+# Fase 4 — SFT con corpus destilado de Gemini/DeepSeek/Groq
+# ════════════════════════════════════════════════════════════════════
+# Sobre el checkpoint de Fase 3. El modelo internaliza el "estilo y
+# conocimiento" de los modelos comerciales que generaron el corpus.
+#
+# Corpus: los demás tipos del DATASET_V2 (sin los de Fase 3 que ya se
+# entrenaron como CoT).
+#
+# Tiempo estimado: ~25h en Kaggle T4
+# ════════════════════════════════════════════════════════════════════
+
+fase: 4
+descripcion: "SFT con corpus destilado de LLMs comerciales"
+modo: sft
+seed: 45
+
+modelo:
+  preset: sota_b
+
+modelo_base: training/checkpoints/B_fase3/checkpoint_best.pt
+
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
+
+corpus:
+  jsonl: data/dataset_v2.jsonl
+  filtro_tipos:
+    # Tipos clásicos V1 (corpus existente)
+    - explicacion_codigo
+    - generacion_codigo
+    - concepto
+    - explicacion_linea
+    - actividad
+    - correccion_error
+    - comprension
+    # Tipos V2 pedagógicos
+    - explicacion_multinivel
+  val_jsonl: data/dataset_v2_val.jsonl
+
+training:
+  per_device_batch_size: 1
+  grad_accum_steps: 32
+  epocas: 2
+  max_pasos: 30000
+  learning_rate: 1e-4
+  min_learning_rate: 1e-5
+  warmup_ratio: 0.03
+  weight_decay: 0.05
+  grad_clip: 1.0
+  dtype: auto
+  gradient_checkpointing: true
+  eval_cada: 500
+  eval_pasos: 50
+  save_cada: 1000
+  log_cada: 50
+
+salida: training/checkpoints/B_fase4

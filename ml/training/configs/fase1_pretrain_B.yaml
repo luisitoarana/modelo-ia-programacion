@@ -1,0 +1,64 @@
+# ════════════════════════════════════════════════════════════════════
+# Fase 1 — Pretraining puro en código (modelo B, 120M)
+# ════════════════════════════════════════════════════════════════════
+# Objetivo: que el modelo aprenda sintaxis y patrones léxicos de los
+# lenguajes objetivo (Python, JavaScript, SQL, HTML, CSS, Java).
+# Solo predicción de siguiente token, sin instrucciones.
+#
+# Corpus esperado (~5-10 GB texto plano):
+#   - data/corpus_python.txt
+#   - data/corpus_js.txt
+#   - data/corpus_sql.txt
+#   - data/corpus_html.txt
+#   - data/corpus_css.txt
+#   - data/corpus_java.txt
+# Estos se construyen con:
+#   python -m ml.data.download_hf --dataset codealpaca,codefeedback,magicoder-oss,...
+# y concatenando los .response a archivos .txt por lenguaje.
+#
+# Tiempo estimado: ~25h en Kaggle T4 (en chunks de 9h con --tiempo-max-minutos 540)
+# ════════════════════════════════════════════════════════════════════
+
+fase: 1
+descripcion: "Pretraining de código puro — modelo B (120M)"
+modo: pretrain
+seed: 42
+device: auto
+
+modelo:
+  preset: sota_b   # 150M params, RoPE+GQA+SwiGLU+RMSNorm
+
+modelo_base: null  # Empezamos desde cero (es la primera fase)
+
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
+
+corpus:
+  archivos:
+    - data/corpus_python.txt
+    - data/corpus_js.txt
+    - data/corpus_sql.txt
+    - data/corpus_html.txt
+    - data/corpus_css.txt
+    - data/corpus_java.txt
+  val_archivos:
+    - data/corpus_python_val.txt
+
+training:
+  per_device_batch_size: 2
+  grad_accum_steps: 16       # batch efectivo 32
+  max_pasos: 50000
+  learning_rate: 3e-4
+  min_learning_rate: 3e-5
+  warmup_ratio: 0.02
+  weight_decay: 0.1
+  beta1: 0.9
+  beta2: 0.95
+  grad_clip: 1.0
+  dtype: auto                # fp16 en T4, bf16 en A10G+
+  gradient_checkpointing: true   # crítico para que quepa en RTX 2050/T4
+  eval_cada: 500
+  eval_pasos: 50
+  save_cada: 1000
+  log_cada: 50
+
+salida: training/checkpoints/B_fase1

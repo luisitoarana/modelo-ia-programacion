@@ -1,0 +1,36 @@
+# Control de versiones
+.git
+.gitignore
+
+# Python
+**/__pycache__
+**/*.py[cod]
+.venv
+venv
+env
+.mypy_cache
+.ruff_cache
+.pytest_cache
+
+# Frontend (se reinstala dentro de la imagen)
+frontend/node_modules
+frontend/.next
+frontend/out
+
+# Artefactos pesados de ML (no van en la imagen del backend web)
+ml/**/__pycache__
+training/checkpoints
+training/experiments
+*.pt
+*.ckpt
+
+# Logs y entorno
+logs/*.log
+.env
+.env.local
+
+# Editor / SO
+.idea
+.vscode
+.DS_Store
+Thumbs.db

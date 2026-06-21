@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+*.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Next
+node_modules/
+.next/
+out/
+dist/
+
+# Entorno
+.env
+.env.local
+.env.*.local
+
+# Logs y datos
+logs/
+*.log
+datasets/raw/*
+datasets/processed/*
+datasets/validated/*
+datasets/synthetic/*
+!datasets/**/.gitkeep
+
+# Modelos y checkpoints (pesados)
+models/
+training/checkpoints/
+training/experiments/*/checkpoints/
+
+# Sistema
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Flutter / Dart (app-desktop)
+app-desktop/build/
+app-desktop/.dart_tool/
+app-desktop/.pub-cache/
+app-desktop/.flutter-plugins
+app-desktop/.flutter-plugins-dependencies
+app-desktop/ios/Pods/
+app-desktop/macos/Pods/
+**/*.iml
+
+# TypeScript / Next build cache
+**/tsconfig.tsbuildinfo
+**/.next/cache/
+
+# Tokenizer artefacts (suelen ser grandes y se regeneran)
+ml/tokenizer/artefactos/*.model
+ml/tokenizer/artefactos/*.vocab
+
+# Salidas de experimentos
+training/experiments/
+
+# Outputs temporales
+*.tmp
+*.bak

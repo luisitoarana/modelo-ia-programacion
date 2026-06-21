@@ -1,0 +1,12 @@
+# Dependencias del módulo de Machine Learning (LLM propio)
+#
+# IMPORTANTE: para usar la GPU (RTX 2050) instala el build CUDA de PyTorch,
+# NO el build +cpu. Ver instrucciones en ml/README.md.
+
+# PyTorch (CPU por defecto; reemplazar por build CUDA para GPU)
+torch>=2.4
+
+numpy>=1.26
+
+# Solo para el Dataset Generator (llamadas a Gemini/DeepSeek)
+httpx>=0.27
