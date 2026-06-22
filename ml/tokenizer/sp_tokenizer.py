@@ -215,3 +215,137 @@ class SPTokenizer:
         tok.special_to_id = {k: int(v) for k, v in data["special_to_id"].items()}
         tok.id_to_special = {v: k for k, v in tok.special_to_id.items()}
         return tok
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# CLI — permite entrenar el tokenizer desde la línea de comandos.
+#
+# Uso:
+#     python -m ml.tokenizer.sp_tokenizer train \\
+#         --corpus /ruta/al/corpus.jsonl \\
+#         --salida ml/tokenizer/artefactos/sp_v2_16k.model \\
+#         --vocab-size 16000
+#
+# El corpus puede ser:
+#     * Un archivo JSONL (una línea = un objeto con campos
+#       instruccion/entrada/salida o instruction/input/response).
+#     * Un archivo de texto plano (una línea = un texto).
+# ═══════════════════════════════════════════════════════════════════════
+
+def _iter_textos_de_corpus(ruta: Path) -> Iterable[str]:
+    """Lee un JSONL o .txt y devuelve los textos a usar para entrenar
+    el tokenizer. Para JSONL extrae todos los campos de texto relevantes."""
+    es_jsonl = ruta.suffix.lower() in (".jsonl", ".json")
+    with ruta.open("r", encoding="utf-8") as f:
+        for linea in f:
+            linea = linea.strip()
+            if not linea:
+                continue
+            if not es_jsonl:
+                yield linea
+                continue
+            try:
+                obj = json.loads(linea)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(obj, dict):
+                continue
+            # Extraer todos los campos de texto del schema V1 y V2.
+            for campo in (
+                "instruccion", "instruction",
+                "entrada", "input",
+                "salida", "response", "output",
+            ):
+                v = obj.get(campo)
+                if isinstance(v, str) and v.strip():
+                    yield v.strip()
+            # Si tiene 'explicacion_por_nivel', extraer cada nivel.
+            niveles = obj.get("explicacion_por_nivel")
+            if isinstance(niveles, dict):
+                for v in niveles.values():
+                    if isinstance(v, str) and v.strip():
+                        yield v.strip()
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Entrena un tokenizer sentencepiece V2 sobre un corpus."
+    )
+    sub = parser.add_subparsers(dest="comando", required=True)
+
+    # ── train ──
+    p_train = sub.add_parser("train", help="Entrenar un tokenizer nuevo.")
+    p_train.add_argument("--corpus", required=True, type=Path,
+                         help="Ruta al corpus .jsonl o .txt.")
+    p_train.add_argument("--salida", required=True, type=Path,
+                         help="Ruta de salida del tokenizer (.model). El "
+                              ".vocab se guarda junto, también un .json "
+                              "con metadatos.")
+    p_train.add_argument("--vocab-size", type=int, default=16000)
+
+    # ── encode (utilidad rápida para probar el tokenizer) ──
+    p_enc = sub.add_parser("encode", help="Codificar un texto.")
+    p_enc.add_argument("--modelo", required=True, type=Path,
+                       help="Ruta al tokenizer .json o .model")
+    p_enc.add_argument("--texto", required=True)
+
+    args = parser.parse_args()
+
+    if args.comando == "train":
+        if not args.corpus.exists():
+            raise SystemExit(f"No existe el corpus: {args.corpus}")
+
+        print(f"[SP] Leyendo corpus desde: {args.corpus}")
+        textos = list(_iter_textos_de_corpus(args.corpus))
+        print(f"[SP] Textos extraídos: {len(textos):,}")
+        if not textos:
+            raise SystemExit("ERROR: no se extrajo ningún texto del corpus.")
+
+        tok = SPTokenizer().entrenar(
+            textos, vocab_size=args.vocab_size, verbose=True,
+        )
+
+        # Guardamos en dos formatos:
+        #  - .json (el formato propio del proyecto, con model_b64).
+        #  - .model y .vocab (formato nativo de sentencepiece, útil
+        #    para auditar y para herramientas externas).
+        args.salida.parent.mkdir(parents=True, exist_ok=True)
+
+        # Si --salida termina en .model, derivamos los nombres.
+        if args.salida.suffix == ".model":
+            ruta_json = args.salida.with_suffix(".json")
+            ruta_model_nativo = args.salida
+            ruta_vocab = args.salida.with_suffix(".vocab")
+        else:
+            ruta_json = args.salida.with_suffix(args.salida.suffix + ".json")
+            ruta_model_nativo = args.salida.with_suffix(".model")
+            ruta_vocab = args.salida.with_suffix(".vocab")
+
+        tok.guardar(ruta_json)
+        print(f"[SP] Guardado JSON:  {ruta_json}")
+
+        if tok.model_bytes:
+            ruta_model_nativo.write_bytes(tok.model_bytes)
+            print(f"[SP] Guardado .model: {ruta_model_nativo}")
+
+        # Generar .vocab (lista de piezas para inspección humana).
+        if tok.sp:
+            with ruta_vocab.open("w", encoding="utf-8") as f:
+                for i in range(tok.vocab_size):
+                    f.write(f"{tok.sp.id_to_piece(i)}\t{tok.sp.get_score(i)}\n")
+            print(f"[SP] Guardado .vocab: {ruta_vocab}")
+
+        print(f"\n[OK] Tokenizer entrenado con {tok.vocab_size:,} tokens.")
+
+    elif args.comando == "encode":
+        tok = SPTokenizer.cargar(args.modelo)
+        ids = tok.encode(args.texto)
+        print(f"Tokens: {len(ids)}")
+        print(f"IDs:    {ids}")
+        print(f"Pieces: {[tok.sp.id_to_piece(i) for i in ids]}")
+
+
+if __name__ == "__main__":
+    main()
