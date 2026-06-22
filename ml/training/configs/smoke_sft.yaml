@@ -1,0 +1,48 @@
+# ════════════════════════════════════════════════════════════════════
+# SMOKE TEST de entrenamiento — verificación end-to-end del pipeline.
+#
+# Modelo: sota_experto (30M parámetros) — chico, rápido, cabe en T4
+# sin esfuerzo. NO es el modelo final, es solo para validar que TODO
+# el pipeline funciona antes de comprometerse con corridas largas.
+#
+# Corpus: todos los datasets consolidados (públicos + V2 propio).
+# Modo: SFT (instrucción → respuesta) usando el schema V2.
+#
+# Tiempo objetivo: 20-40 min en GPU T4 16GB.
+# ════════════════════════════════════════════════════════════════════
+
+fase: smoke
+descripcion: "Smoke test — modelo 30M sobre corpus consolidado"
+modo: sft
+seed: 42
+device: auto
+
+modelo:
+  preset: sota_experto    # 30M params, n_layer=8, n_embd=512, block_size=512
+
+modelo_base: null         # Sin checkpoint previo, partir de cero
+
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.json
+
+corpus:
+  jsonl: /tmp/corpus_tokenizer.jsonl
+  # Sin filtro_tipos → usa TODO el corpus consolidado.
+  # No hay val_jsonl explícito — el smoke test no necesita validación.
+
+training:
+  per_device_batch_size: 4
+  grad_accum_steps: 4         # batch efectivo 16
+  max_pasos: 1000             # smoke test corto
+  epocas: 1
+  learning_rate: 3.0e-4
+  min_learning_rate: 3.0e-5
+  warmup_ratio: 0.05
+  weight_decay: 0.1
+  grad_clip: 1.0
+  dtype: auto                 # bfloat16 en T4 si soporta, fp16 si no
+  gradient_checkpointing: false   # 30M cabe sin GC
+  eval_cada: 100              # sin val_jsonl no hace eval, pero dejamos por si
+  save_cada: 200
+  log_cada: 10
+
+salida: training/checkpoints/smoke_test_30M
