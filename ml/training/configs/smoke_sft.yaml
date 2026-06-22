@@ -22,7 +22,7 @@ modelo:
 
 modelo_base: null         # Sin checkpoint previo, partir de cero
 
-tokenizer: ml/tokenizer/artefactos/sp_v2_16k.json
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
 
 corpus:
   jsonl: /tmp/corpus_tokenizer.jsonl
