@@ -1,0 +1,49 @@
+# ════════════════════════════════════════════════════════════════════
+# Entrenamiento modelo B (150M) — SFT sobre corpus consolidado, 5000 pasos.
+#
+# Esto NO es Fase 1 pretrain puro (que requiere corpus de texto plano por
+# lenguaje). Es el equivalente del smoke test pero escalado al modelo B,
+# usando el corpus JSONL combinado (364K públicos + V2 propio).
+#
+# Objetivo: primer modelo B funcional que aprende sintaxis + patrones de
+# instrucción-respuesta del corpus mixto. Sirve como base para las fases
+# posteriores (instrucción, distillation, DPO).
+#
+# Tiempo estimado: 8-12h en T4 con batch efectivo 16.
+# Memoria: ~5-7 GB VRAM con gradient checkpointing.
+# ════════════════════════════════════════════════════════════════════
+
+fase: b_sft_5k
+descripcion: "SFT modelo B (150M) sobre corpus consolidado — 5000 pasos"
+modo: sft
+seed: 42
+device: auto
+
+modelo:
+  preset: sota_b    # 150M params, n_layer=24, n_embd=768, RoPE+GQA+SwiGLU+RMSNorm
+
+modelo_base: null   # Empezamos desde cero (sin checkpoint previo)
+
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
+
+corpus:
+  jsonl: /tmp/corpus_tokenizer.jsonl
+  # Sin val_jsonl — no necesitamos validación en este primer escalado.
+
+training:
+  per_device_batch_size: 2
+  grad_accum_steps: 8           # batch efectivo 16 (mismo que el smoke)
+  max_pasos: 5000
+  epocas: 1
+  learning_rate: 3.0e-4
+  min_learning_rate: 3.0e-5
+  warmup_ratio: 0.03
+  weight_decay: 0.1
+  grad_clip: 1.0
+  dtype: auto                   # bfloat16 en T4 si soporta, fp16 si no
+  gradient_checkpointing: true  # crítico: 150M necesita GC en T4
+  eval_cada: 500                # sin val_jsonl no eval, pero queda preparado
+  save_cada: 500                # checkpoint cada 500 pasos (~1h)
+  log_cada: 25
+
+salida: training/checkpoints/B_sft_5k
