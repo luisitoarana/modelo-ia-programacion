@@ -496,3 +496,179 @@ decorativos.
 - Búsqueda de texto más fiable.
 - Profesionalismo en publicaciones derivadas (artículo de workshop,
  blog técnico, etc.).
+
+---
+
+## DD-21: Smoke test 30M antes que el modelo B serio
+
+**Fecha**: 2026-06-22
+
+**Contexto**: Después de tener pipeline (corpus + tokenizer + modelo +
+runner) listo, el primer entrenamiento que se lanzó fue un "smoke test"
+de 1000 pasos sobre el modelo de 30M (sota_experto), no directamente
+el modelo B (150M) que es el objetivo.
+
+**Decisión**: hacer siempre un smoke test corto y barato antes del
+entrenamiento real, aunque cueste 47 minutos extra.
+
+**Justificación**:
+
+- Detecta bugs de configuración en minutos en lugar de horas (BUG-12
+  y BUG-13 se descubrieron en el smoke; si hubieran aparecido en el
+  modelo B serían 15h perdidas).
+- El smoke test confirma la curva de loss bajando, validando que la
+  arquitectura, el tokenizer, el corpus y el runner están en armonía.
+- Costo: ~$0.26 USD en T4 vs. perder $5-10 USD en un crash de modelo
+  B.
+- Es la práctica estándar en ML serio (Karpathy lo recomienda
+  explícitamente en sus tutoriales).
+
+**Implementación**: `ml/training/configs/smoke_sft.yaml` (1000 pasos,
+30M, mismo corpus que el modelo serio).
+
+---
+
+## DD-22: SFT mixto en lugar de pretrain puro como primer entrenamiento del modelo B
+
+**Fecha**: 2026-06-22
+
+**Contexto**: El plan original (`fase1_pretrain_B.yaml`) hace
+pretraining de código puro: el corpus son archivos `.txt` con código
+plano por lenguaje, sin instrucciones, predicción de siguiente token.
+Eso requería preparar archivos separados por lenguaje (`corpus_python.txt`,
+`corpus_js.txt`, ...) — ~2 horas de trabajo extra.
+
+**Decisión**: para el primer entrenamiento del modelo B, usar SFT sobre
+el corpus mixto JSONL (mismo formato que el smoke), no pretrain puro.
+
+**Justificación**:
+
+- El corpus JSONL ya está preparado (consolidación de los 364K
+  ejemplos).
+- 364K ejemplos no son tantos para pretrain "puro" (los pretrains
+  serios usan miles de millones de tokens). Para 364K ejemplos
+  curados, SFT es más eficiente porque cada ejemplo aporta señal
+  estructurada (instrucción → respuesta) en lugar de tokens crudos.
+- Para Fase 4 (DPO) y Fase 5 (eval) lo que importa es que el modelo
+  responda bien a instrucciones, no que tenga conocimiento general
+  del corpus. SFT lo lleva más rápido a esa meta.
+- Las fases pretrain "puras" cobran sentido cuando el corpus supera
+  los 10-50 GB de texto plano. No es el caso ahora.
+
+**Limitación reconocida**: el modelo aprenderá patrones de
+instrucción-respuesta pero menos exposición a código "salvaje". Para
+mitigar, el corpus incluye `codeparrot-py` que es código real de
+GitHub (683 MB).
+
+---
+
+## DD-23: Lanzamiento con `nohup` en Lightning AI
+
+**Fecha**: 2026-06-22
+
+**Contexto**: Lightning AI Studio se suspende cuando se cierra el
+navegador o hay inactividad prolongada. El primer smoke test casi se
+pierde porque la pestaña se cerró por accidente.
+
+**Decisión**: TODOS los entrenamientos largos (> 30 min) se lanzan con
+`nohup ... > log_file 2>&1 &` para sobrevivir cierres de sesión.
+
+**Justificación**:
+
+- `nohup` desacopla el proceso del terminal: aunque el SSH/websocket
+  muera, el proceso sigue corriendo en el host de Lightning.
+- El log a archivo permite monitoreo posterior con `tail -f`.
+- No tiene contra: solo se ejecuta más limpio.
+
+**Pattern documentado**:
+
+```bash
+nohup python -m ml.training.run_fase \
+  --config <CONFIG.yaml> \
+  > entrenamiento_<NOMBRE>.log 2>&1 &
+```
+
+Apuntar siempre el PID que retorna (`[1] 7961`) para `pkill` selectivo
+si hace falta.
+
+---
+
+## DD-24: Corpus consolidado en `/tmp/` con copia para el v2 separada
+
+**Fecha**: 2026-06-22
+
+**Contexto**: El modelo B v1 está usando `/tmp/corpus_tokenizer.jsonl`
+(364K ejemplos). Durante su entrenamiento se descargaron datasets
+adicionales que llevan el corpus a 882K, pero modificar el archivo en
+uso podría corromper el data loader.
+
+**Decisión**: el corpus consolidado ampliado se guarda en un archivo
+**separado** (`/tmp/corpus_v2_ampliado.jsonl`) para no tocar el que
+está activamente en uso por el v1.
+
+**Justificación**:
+
+- Aislamiento: el v1 sigue su curso con su corpus, el v2 prepara su
+  corpus en paralelo.
+- Auditable: ambos corpus quedan en disco si hace falta inspeccionar.
+- Costo: ~2.5 GB extra de disco, negligible.
+
+**Alternativa rechazada**: hacer un solo corpus con append. Riesgo de
+corrupción del data loader si lee mientras se escribe.
+
+---
+
+## DD-25: `--max-items 200000` para datasets potencialmente enormes
+
+**Fecha**: 2026-06-22
+
+**Contexto**: `codeparrot/codeparrot-clean` tiene **50 GB de Python**.
+Descargarlo completo llenaría el disco de Lightning (100 GB total). Lo
+mismo para otros datasets streaming.
+
+**Decisión**: cuando se descargan datasets potencialmente grandes,
+limitar con `--max-items 200000`.
+
+**Justificación**:
+
+- 200K ejemplos por dataset es suficiente para que el modelo aprenda
+  los patrones del dominio. Más allá rinde menos por ejemplo (ley
+  de retornos decrecientes en SFT).
+- 200K × ~2-5 KB = ~400 MB - 1 GB por dataset. Manejable en disco.
+- Si el modelo necesita más exposición a un dominio específico,
+  podemos descargar más adelante. Es reversible.
+
+---
+
+## DD-26: Pipeline de tres terminales paralelas en Lightning
+
+**Fecha**: 2026-06-22
+
+**Contexto**: Con tres tareas independientes (entrenamiento GPU,
+descarga de datasets HF, generación de dataset V2 con APIs) se evita
+serializar inútilmente.
+
+**Decisión**: el flujo de trabajo en Lightning AI usa **tres terminales
+en paralelo**:
+
+1. **Terminal 1**: Entrenamiento (GPU) — `nohup`, `tail -f` para
+   monitoreo.
+2. **Terminal 2**: Descarga de datasets (CPU + red) — bloqueante,
+   ~5 min cada uno.
+3. **Terminal 3**: Generación de dataset V2 (CPU + APIs externas) —
+   `nohup`, tarda horas.
+
+**Justificación**:
+
+- Las tres tareas no compiten por recursos:
+  - GPU: solo la usa el entrenamiento.
+  - CPU: descarga + generación, pero ambos están I/O-bound (red),
+    no CPU-bound.
+  - Disco: cada una escribe en directorios distintos.
+- Maximiza throughput de la sesión: 15h de entrenamiento + 4h de
+  descarga + 5h de generación se solapan, no se suman.
+- Cada terminal mantiene su propio log y PID, fácil de auditar.
+
+**Limitación**: el ancho de banda de red de Lightning podría
+saturarse si descarga + generación corren al máximo. En la práctica
+no se observó saturación con Groq + HF descargas.

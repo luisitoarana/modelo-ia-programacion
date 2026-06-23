@@ -477,6 +477,226 @@ moderna de type hints donde sea posible.
 | BUG-09 | Typo `,` extra en dict | Baja | 1 min |
 | BUG-10 | Validador rechaza ejemplos legítimos | Baja | (acepta) |
 | BUG-11 | Optional vs `\| None` | Baja | (estilo) |
+| BUG-12 | Tokenizer config apunta a `.json` en lugar de `.model` | Alta | 2 min |
+| BUG-13 | Corpus en `/tmp` no persiste tras reinicio del Studio | Media | 2 min |
+| BUG-14 | HF deprecó dataset scripts (`cot`, `python-edu` fallan) | Media | (skip) |
+| BUG-15 | `open-code-interp` guardado en `datasets/raw/` en lugar de `datasets/publicos/` | Baja | 1 min |
+
+---
+
+## BUG-12: Config de tokenizer apunta a `.json` en lugar de `.model`
+
+### Fecha de descubrimiento
+
+2026-06-22, durante el primer smoke test del modelo 30M en Lightning AI.
+
+### Síntoma
+
+Al lanzar `python -m ml.training.run_fase --config ml/training/configs/smoke_sft.yaml`,
+el runner crashea con:
+
+```
+RuntimeError: Internal: could not parse ModelProto from
+ml/tokenizer/artefactos/sp_v2_16k.json
+```
+
+### Causa raíz
+
+La clase `_Tokenizer` en `ml/training/run_fase.py` línea 72 invoca
+`self.sp.Load(str(modelo_path))`, que es el método de
+**sentencepiece nativo** y espera el archivo binario `.model`.
+
+El YAML `smoke_sft.yaml` apuntaba por error al wrapper `.json` del
+proyecto (que contiene metadatos pero no es ModelProto).
+
+### Solución
+
+Cambiar una línea en el YAML:
+
+```yaml
+# Antes:
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.json
+# Después:
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
+```
+
+Commit `161d339`.
+
+### Verificación
+
+Tras el fix, el runner cargó el tokenizer correctamente y el smoke test
+completó las 1000 iteraciones bajando loss de 9.21 → 3.94.
+
+### Lección aprendida
+
+Sentencepiece tiene **dos formatos de archivo**: el `.model` nativo
+(ModelProto serializado) y wrappers de proyectos (a menudo `.json` con
+metadatos + vocab). Siempre apuntar al `.model` cuando el código usa
+`sp.Load()`.
+
+---
+
+## BUG-13: Corpus en `/tmp` no persiste tras reinicio del Studio
+
+### Fecha de descubrimiento
+
+2026-06-22, al reanudar Lightning AI después de cierre de pestaña.
+
+### Síntoma
+
+Tras `git pull` para traer el fix BUG-12, el runner crashea con:
+
+```
+FileNotFoundError: jsonl inexistente: /tmp/corpus_tokenizer.jsonl
+```
+
+A pesar de que ese archivo se había creado en la sesión anterior.
+
+### Causa raíz
+
+Lightning AI **no preserva `/tmp` entre sesiones del Studio** (es como
+una RAM disk efímera). Cuando el Studio se suspende por inactividad o
+se reinicia, todo en `/tmp` se borra.
+
+El smoke test config `smoke_sft.yaml` apuntaba a `/tmp/corpus_tokenizer.jsonl`
+porque originalmente era el output temporal del entrenamiento del
+tokenizer V2.
+
+### Solución
+
+Reconstruir el corpus concatenando los JSONL descargados:
+
+```bash
+cat datasets/publicos/*.jsonl datasets/raw/dataset_v2.jsonl > /tmp/corpus_tokenizer.jsonl
+```
+
+Comando idempotente; lo recreas cada vez que vuelves al Studio.
+
+### Solución de fondo (pendiente)
+
+Cambiar el config para apuntar a una ruta persistente:
+
+```yaml
+corpus:
+  jsonl: datasets/corpus_consolidado.jsonl
+```
+
+Y crear ese archivo una sola vez con un script que regenere si no existe.
+
+### Lección aprendida
+
+**Las rutas en `/tmp` solo son seguras dentro de UNA sesión.** En
+plataformas con Studios efímeros (Lightning, Colab, Kaggle), usar
+siempre rutas dentro del repo o de volúmenes persistentes.
+
+---
+
+## BUG-14: HuggingFace deprecó dataset scripts (`cot`, `python-edu` fallan)
+
+### Fecha de descubrimiento
+
+2026-06-22, durante la descarga masiva de datasets adicionales.
+
+### Síntoma
+
+Dos datasets crashean al cargar con:
+
+```
+RuntimeError: Dataset scripts are no longer supported, but found CoT-Collection.py
+RuntimeError: Dataset scripts are no longer supported, but found <nombre>.py
+```
+
+Mismo error que tuvimos previamente con `apps` y `mbpp` (antes de
+moverlos a versiones `apps`/`mbpp-plus`).
+
+### Causa raíz
+
+La librería `datasets` de HuggingFace **deprecó los "dataset scripts"**
+(archivos `.py` que definían el loader) en favor del nuevo formato
+parquet/streaming. Datasets que aún usan scripts viejos:
+
+- `kaist-ai/CoT-Collection` → `CoT-Collection.py`
+- `HuggingFaceTB/smollm-corpus` config `python-edu` → falla silenciosa
+
+### Solución (workaround)
+
+Skipear esos datasets:
+
+```bash
+python -m ml.data.download_hf --dataset codeparrot-py,openhermes,alpaca-es,open-code-interp \
+    --salida-dir datasets/publicos --schema-v2 --max-items 200000
+```
+
+Excluyendo `cot` y `python-edu` de la lista.
+
+### Solución de fondo (futuro)
+
+Reemplazar por alternativas modernas:
+
+| Dataset deprecado | Alternativa moderna |
+|---|---|
+| `kaist-ai/CoT-Collection` | `Open-Orca/OpenOrca` (más grande, GPT-4 distilled) |
+| `HuggingFaceTB/smollm-corpus` python-edu | `HuggingFaceTB/cosmopedia` (Python educational) |
+| `apps` | `codeparrot/apps` (versión sin script) |
+
+Agregar manejo de errores en `ml/data/download_hf.py` para que si un
+dataset falla, continúe con los demás en lugar de abortar todo el
+proceso.
+
+### Impacto
+
+Ninguno crítico: `codeparrot-py` cubre Python masivo y los otros 4
+datasets descargados (codeparrot-py + openhermes + alpaca-es +
+open-code-interp) aportan 882K ejemplos.
+
+### Lección aprendida
+
+**Los datasets de HuggingFace tienen vida útil limitada.** Antes de
+incluir un dataset en el pipeline, verificar:
+
+1. ¿Está activamente mantenido?
+2. ¿Usa el nuevo formato parquet/safetensors?
+3. ¿Hay una versión `bigcode/`, `Open-Orca/`, o `HuggingFaceTB/`
+   (mantenidos por equipos serios)?
+
+---
+
+## BUG-15: `open-code-interp` guardado en `datasets/raw/` en lugar de `datasets/publicos/`
+
+### Fecha de descubrimiento
+
+2026-06-22, tras descarga individual de `open-code-interp`.
+
+### Síntoma
+
+A pesar de pasar `--salida-dir datasets/publicos`, el archivo terminó
+en `datasets/raw/open-code-interp.jsonl`.
+
+### Causa raíz
+
+A confirmar leyendo el código de `download_hf.py`. Posibles causas:
+
+- Hardcode de `datasets/raw/` en alguna ruta interna del script.
+- Conflicto entre `--salida-dir` y el directorio por defecto.
+
+### Solución temporal
+
+```bash
+mv datasets/raw/open-code-interp.jsonl datasets/publicos/
+```
+
+### Solución de fondo (pendiente)
+
+Auditar `ml/data/download_hf.py` para que respete consistentemente el
+`--salida-dir`.
+
+### Lección aprendida
+
+Cuando un script soporta múltiples paths de salida, **verificar que el
+flag de CLI realmente se respete** en todas las rutas internas del
+código.
+
+---
 
 ## Lecciones generales
 

@@ -377,3 +377,122 @@ Resultados detallados en [EXPERIMENTOS.md](./EXPERIMENTOS.md).
 
 Total aproximado: 5 000 líneas de código nuevo + 4 000 líneas de
 documentación.
+
+---
+
+## Sesión 2026-06-22 — Primer entrenamiento real en Lightning AI
+
+### Contexto
+
+Tras finalizar la implementación del pipeline V2 (sesiones anteriores),
+se ejecutó el primer entrenamiento end-to-end con GPU real en Lightning
+AI Studio (T4 16 GB). Esta sesión es el **paso del código al modelo
+real**.
+
+### Hito 11: Smoke test del pipeline (modelo 30M)
+
+Lanzamiento de `smoke_sft.yaml` con el modelo `sota_experto` (30M
+params) sobre el corpus consolidado de 364K ejemplos. Mil pasos.
+
+**Resultado**: bajada de loss **9.21 → 3.94** en 47 minutos.
+
+Esto valida que el pipeline completo (corpus → tokenizer → modelo →
+forward → backward → optimizer → checkpointing) funciona como se diseñó.
+
+Bugs descubiertos y corregidos durante este hito:
+
+- **BUG-12**: el config apuntaba al wrapper `.json` del tokenizer en
+  lugar del archivo nativo `.model`. Fix de una línea, commit `161d339`.
+- **BUG-13**: el corpus `/tmp/corpus_tokenizer.jsonl` se perdió tras
+  reanudar el Studio (Lightning no preserva `/tmp`). Workaround:
+  reconstruir con `cat datasets/publicos/*.jsonl ...`.
+
+### Hito 12: Modelo B v1 (150M) en marcha
+
+Lanzamiento del primer entrenamiento serio del modelo B con
+`b_sft_5k.yaml` (commit `c4872c3`):
+
+- 150.7M parámetros, arquitectura V2 (RoPE+GQA+SwiGLU+RMSNorm).
+- 5,000 pasos sobre el mismo corpus de 364K ejemplos.
+- Batch efectivo 16 (batch=2 × grad_accum=8).
+- Gradient checkpointing ON (obligatorio en T4 para 150M).
+- bfloat16 mixed precision.
+
+ETA total: **~15 horas**. Throughput: **0.09 pasos/segundo** (12× más
+lento que el smoke por tamaño + GC).
+
+Lanzado con `nohup` para sobrevivir cierres de navegador (DD-23):
+
+```bash
+nohup python -m ml.training.run_fase \
+  --config ml/training/configs/b_sft_5k.yaml \
+  > entrenamiento_B.log 2>&1 &
+```
+
+Loss bajando linealmente durante el warmup:
+- Paso 25: 8.65
+- Paso 150: 5.73
+- Proyección final: 2.8 - 3.2
+
+### Hito 13: Ampliación del corpus de 364K → 882K ejemplos
+
+En paralelo al entrenamiento, se descargaron 6 datasets adicionales con
+`--max-items 200000`:
+
+| Dataset | Estado | Aporte |
+|---|---|---|
+| codeparrot-py | ✅ 683 MB | Python real de GitHub |
+| openhermes | ✅ 331 MB | Conversaciones de calidad |
+| alpaca-es | ✅ 30 MB | Español (diferenciador clave) |
+| open-code-interp | ✅ 164 MB | Código con feedback de ejecución |
+| cot | ❌ HF deprecado | (skip) |
+| python-edu | ❌ HF deprecado | (skip) |
+
+**BUG-14**: HF deprecó dataset scripts → `cot` y `python-edu` fallan.
+Hay que migrar a alternativas modernas (Open-Orca, cosmopedia) — tarea
+pendiente.
+
+Corpus consolidado nuevo: `/tmp/corpus_v2_ampliado.jsonl` (882,856
+ejemplos, 2.0 GB). Listo para el modelo B v2.
+
+### Hito 14: Generación del dataset V2 escala media en paralelo
+
+Tercera terminal lanzada en paralelo:
+
+```bash
+nohup python -m ml.data.construir_dataset_v2 \
+  --salida-dir datasets/raw \
+  --escala media \
+  --reset > dataset_v2_media.log 2>&1 &
+```
+
+Target: 5000-8000 ejemplos pedagógicos para Fase 4 (DPO) y Fase 5
+(EduCodeEval). ETA: 3-5 horas.
+
+Esto valida la decisión DD-26 (pipeline de tres terminales paralelas).
+
+### Estado al final de la sesión
+
+**Procesos corriendo simultáneamente en Lightning**:
+
+1. Terminal 1: modelo B v1 (150M) entrenando, PID 7961, ETA 15h.
+2. Terminal 2: descarga de datasets completada (882K ejemplos en disco).
+3. Terminal 3: generación de dataset V2 escala media, ETA 3-5h.
+
+**Archivos creados**:
+
+- `ml/training/configs/b_sft_5k.yaml` (commit `c4872c3`).
+- `training/checkpoints/smoke_test_30M/` (369 MB checkpoint + métricas).
+- `training/checkpoints/B_sft_5k/` (creciendo: checkpoints cada 500
+  pasos).
+- `/tmp/corpus_v2_ampliado.jsonl` (2.0 GB, 882,856 líneas).
+- `datasets/publicos/{codeparrot-py,openhermes,alpaca-es,open-code-interp}.jsonl`
+  (+1.2 GB de datos nuevos).
+
+**Bugs documentados**: BUG-12, BUG-13, BUG-14, BUG-15.
+
+**Decisiones registradas**: DD-21 a DD-26.
+
+**Próxima sesión**: verificar resultado del modelo B v1 al terminar
+(loss final + inferencia), decidir si lanzar modelo B v2 con el corpus
+ampliado.

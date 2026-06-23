@@ -293,6 +293,188 @@ muestra de 100 respuestas:
 
 ---
 
+## 9. Experimentos reales en Lightning AI (2026-06-22)
+
+Los smoke tests previos (secciones 1-5) se ejecutaron localmente para
+validar el código. Esta sección documenta los **primeros experimentos
+reales con GPU** sobre Lightning AI Studio (T4 16 GB).
+
+### 9.1 EXP-LA-01: Smoke test del pipeline completo (30M)
+
+**Objetivo**: validar que todo el pipeline (corpus → tokenizer → modelo →
+forward → backward → optimizer → checkpointing) funciona end-to-end
+con la GPU real.
+
+**Configuración**:
+
+| Parámetro | Valor |
+|---|---|
+| Config | `ml/training/configs/smoke_sft.yaml` |
+| Modelo | `sota_experto` (30.7M params, arquitectura V2) |
+| Tokenizer | `sp_v2_16k.model` (16,000 tokens, sentencepiece BPE) |
+| Corpus | 364,627 ejemplos (10 datasets públicos + 19 V2) |
+| Pasos | 1,000 |
+| Batch size | 4 (per device) × 4 (grad accum) = **16 efectivo** |
+| Optimizador | AdamW (β1=0.9, β2=0.95) |
+| LR | 3.0e-4 → 3.0e-5 (cosine, warmup_ratio=0.05) |
+| Precisión | bfloat16 mixed precision |
+| Gradient checkpointing | OFF (30M cabe sin GC) |
+| Hardware | T4 16 GB VRAM |
+
+**Resultados**:
+
+| Métrica | Valor |
+|---|---|
+| Loss inicial (paso 10) | **9.21** |
+| Loss media (paso 500) | **4.21** |
+| Loss final (paso 1000) | **3.94** |
+| Bajada total | **5.27 puntos** |
+| Throughput | **1.08 pasos/segundo** |
+| Tiempo wall-clock | **47 minutos** |
+| Checkpoint final | 369 MB (incluye estado de Adam) |
+| Pico VRAM | ~3.5 GB de 16 GB |
+
+**Validación**:
+
+- Loss bajando monótonamente → modelo aprendiendo correctamente.
+- LR siguiendo schedule cosine → optimizer configurado bien.
+- Sin crashes ni NaN → bfloat16 estable.
+- Checkpoint serializa y vuelve a cargar OK.
+
+**Bugs descubiertos durante el experimento**:
+
+- BUG-12 (tokenizer .json vs .model) — bloqueante, fix instantáneo.
+- BUG-13 (corpus en /tmp se borra) — recurrente, workaround documentado.
+
+**Conclusión**: **PIPELINE VALIDADO**. Procede el entrenamiento del
+modelo B.
+
+### 9.2 EXP-LA-02: Modelo B v1 — SFT sobre corpus consolidado (en curso)
+
+**Objetivo**: primer entrenamiento serio del modelo B (150M), versión
+v1 (sobre los 364K ejemplos originales, ANTES de la ampliación a 882K).
+
+**Configuración**:
+
+| Parámetro | Valor |
+|---|---|
+| Config | `ml/training/configs/b_sft_5k.yaml` |
+| Modelo | `sota_b` (150.7M params, RoPE+GQA+SwiGLU+RMSNorm) |
+| Corpus | mismo que EXP-LA-01 (364K) |
+| Pasos | 5,000 |
+| Batch size | 2 × 8 = **16 efectivo** |
+| Gradient checkpointing | **ON** (150M no cabe sin GC en T4) |
+| Otros | mismos LR, precisión y optimizador que EXP-LA-01 |
+
+**Resultados parciales** (al momento de redactar esta sección, paso 150
+de 5000):
+
+| Paso | Loss | LR |
+|---|---|---|
+| 25 | 8.65 | 5.0e-05 |
+| 50 | 7.75 | 1.0e-04 |
+| 75 | 6.84 | 1.5e-04 |
+| 100 | 6.45 | 2.0e-04 |
+| 125 | 6.03 | 2.5e-04 |
+| 150 | 5.73 | 3.0e-04 |
+
+**Métricas operacionales**:
+
+| Métrica | Valor |
+|---|---|
+| Throughput | 0.09 pasos/segundo |
+| ETA total | ~15 horas |
+| VRAM | ~6 GB de 16 GB (con GC) |
+| Memoria RAM proceso | 16 GB |
+
+**Comparación con el smoke**:
+
+| Métrica | Smoke (30M) | B v1 (150M) | Ratio |
+|---|---|---|---|
+| Params | 30M | 150M | 5× |
+| Pasos/segundo | 1.08 | 0.09 | 0.083× (12× más lento) |
+| VRAM | 3.5 GB | 6 GB | 1.7× |
+| Tiempo por paso | 0.93 s | 11.1 s | 12× |
+
+El **12× de lentitud** se descompone aproximadamente en:
+- 5× por el aumento de parámetros.
+- ~2× por gradient checkpointing (re-cómputo de activaciones en
+  backward).
+- ~1.2× residual (overhead, atención más profunda, etc.).
+
+**Proyección de loss final**: a la velocidad de bajada actual (~0.3
+puntos cada 25 pasos durante el warmup), el modelo debería terminar
+en loss **2.8 - 3.2** al paso 5000. Eso es excelente para un primer
+SFT desde cero.
+
+**Resultado pendiente**: a completar cuando el entrenamiento termine.
+
+### 9.3 EXP-LA-03: Ampliación del corpus a 882K (completado en paralelo)
+
+**Objetivo**: ampliar el corpus para una segunda ronda de entrenamiento
+con más datos diversos.
+
+**Datasets nuevos descargados** (con `--max-items 200000`):
+
+| Dataset | HF ID | Ejemplos | Tamaño |
+|---|---|---|---|
+| codeparrot-py | `codeparrot/codeparrot-clean` | ~200,000 | 683 MB |
+| openhermes | `teknium/OpenHermes-2.5` | ~200,000 | 331 MB |
+| alpaca-es | `bertin-project/alpaca-spanish` | 51,942 | 30 MB |
+| open-code-interp | `m-a-p/Code-Feedback` | 66,268 | 164 MB |
+
+**Datasets que fallaron** (BUG-14, HF deprecó scripts):
+
+- `cot` (`kaist-ai/CoT-Collection`)
+- `python-edu` (`HuggingFaceTB/smollm-corpus`, config python-edu)
+
+**Corpus consolidado final**:
+
+```
+/tmp/corpus_v2_ampliado.jsonl
+  - 882,856 líneas (ejemplos)
+  - 2.0 GB
+  - 14 fuentes consolidadas
+```
+
+**Próximo experimento planeado**: EXP-LA-04 — modelo B v2 sobre este
+corpus ampliado con 10000-15000 pasos.
+
+### 9.4 EXP-LA-04: Generación del dataset V2 escala media (en curso)
+
+**Objetivo**: generar ~5000-8000 ejemplos pedagógicos con los 10
+generadores propios para usar en Fase 4 (DPO) y Fase 5 (evaluación).
+
+**Comando**:
+
+```bash
+nohup python -m ml.data.construir_dataset_v2 \
+    --salida-dir datasets/raw \
+    --escala media \
+    --reset > dataset_v2_media.log 2>&1 &
+```
+
+**Proveedores activos**: solo Groq 70B (Gemini pendiente por BUG-05).
+
+**Generadores ejecutados en serie** (target ~500-800 ejemplos cada uno):
+
+1. `pensamiento_programador` (47 objetivos × 8 dominios).
+2. `explicacion_multinivel` (42 conceptos × 4 niveles).
+3. `anti_patron` (30 antipatrones).
+4. `bug_sutil` (25 categorías).
+5. `evolucion_codigo` (15 problemas × 5 versiones).
+6. `decision_diseno` (30 decisiones técnicas).
+7. `arquitectura_sistema` (25 diseños).
+8. `seguridad` (25 categorías OWASP+).
+9. `testing_complejidad` (25 casos).
+10. `pensamiento_autocritico` (20 problemas A→B→C).
+
+**ETA**: 3-5 horas dependiendo de los rate limits de Groq.
+
+**Resultado pendiente**: a completar al finalizar la ejecución.
+
+---
+
 ## 8. Reproducibilidad
 
 Cada experimento se ejecuta con:
