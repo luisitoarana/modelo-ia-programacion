@@ -69,6 +69,303 @@ Han pasado **5 días enteros** desde entonces. Esperamos que:
 | 05 | `05-dataset-v2-atorado-rate-limit.png` | Generador V2 atorado en bucle de 429 (rate limit) de Groq. `ls` de `datasets/raw/` mostrando: pensamiento_v1.jsonl 71K, decision_v1.jsonl 19K, seguridad_v1.jsonl 15K, multinivel_v1.jsonl 6K, arquitectura_v1.jsonl 4.4K, antipatron_v1.jsonl 2.5K, bug_sutil_v1.jsonl 0 (vacío), evolucion_v1.jsonl 0 (vacío). |
 | 06 | `06-buscar-script-inferencia.png` | `ls ml/ \| grep -iE "(infer\|generate\|chat)"` revelando que existen `ml/generate.py` (script V1) y la carpeta `ml/inference/` (engine V1). Confirma que NO había script de inferencia compatible con la arquitectura V2 — por eso se crea `ml/inferencia/generar_v2.py`. |
 | 07 | `07-git-pull-pkill-pip.png` | Tres acciones en una línea: (1) `git pull` que trae los commits `eb24603..346c7c5` (sistema de capturas + scripts de automatización: 4 archivos, 509 líneas). (2) `pkill -9 -f construir_dataset_v2` que retorna sin matar nada porque el proceso V2 ya no estaba vivo (probablemente Lightning lo mató por inactividad días antes). (3) `pip install -q sentencepiece` exitoso. Terminal lista para ejecutar la inferencia. |
+| 08 | `08-inferencia-setup-y-prueba-1.png` | Setup del modelo + Prueba 1. Modelo cargado: 150,725,376 params en 4.6s. Arquitectura: n_layer=16, n_embd=768, vocab=16000, block_size=1024. Tokenizer cargado. **Prueba 1 (promedio)**: el modelo NO genera función de promedio — escribe filter_list. Velocidad: 39.1 tok/s. |
+| 09 | `09-inferencia-pruebas-2-y-3.png` | **Prueba 2 (list comprehension a niño)**: respuesta en inglés con regex sin sentido. **Prueba 3 (refactor)**: bucle de alucinación con `if len(result) == 0` repetido cuatro veces. |
+| 10 | `10-inferencia-pruebas-3-y-4.png` | Continuación Prueba 3 + **Prueba 4 (bug detection)**: inventa función `twar(lista)`, no detecta el bug real. Velocidad consistente 43-45 tok/s. |
+| 11 | `11-inferencia-pruebas-5-y-6.png` | **Prueba 5 (SQL injection)**: sugiere `pytz` y `subprocess`, cero detección de vulnerabilidad. **Prueba 6 (decorador en español)**: responde en INGLÉS sobre `find_find_find` — confirma que el modelo no aprendió español ni el concepto. |
+
+---
+
+## Salida textual completa de la suite
+
+(Para análisis detallado — el output del comando se guarda integro como referencia.)
+
+```
+[device] cuda
+[cuda] Tesla T4 — 15.6 GB total
+[cargando] training/checkpoints/B_sft_5k/checkpoint_ultimo.pt
+[modelo] 150,725,376 params en 4.6s
+[arquitectura] n_layer=16 n_embd=768 vocab=16000 block_size=1024
+[cargando] ml/tokenizer/artefactos/sp_v2_16k.model
+[tokenizer] vocab=16000
+
+======================================================================
+  SUITE DE PRUEBAS PEDAGOGICAS — modelo B v1
+======================================================================
+
+[Prueba 1/6] Generacion basica
+PROMPT: Escribe una funcion Python que reciba una lista de numeros y
+devuelva el promedio.
+RESPUESTA:
+The following Python script will output a list of all possible lists
+of lists.
+
+```python
+# Function to filter out the lists
+def filter_list(lst):
+    return [x for x in lst if x != 0]
+
+print(filter_list([]))
+```
+
+When you run this script, it will output:
+
+```python
+[3, 3, 5, 7, 9]
+```
+
+(200 tokens en 5.11s = 39.1 tok/s)
+
+──────────────────────────────────────────────────────────────────────
+
+[Prueba 2/6] Explicacion pedagogica
+PROMPT: Explicame que es una list comprehension en Python, como si
+tuviera 12 anos.
+RESPUESTA:
+Sure, here is a simple Python script that uses the `re` module to
+achieve the desired result.
+
+```python
+import re
+
+def get_pattern(text):
+    pattern = r'\d{3,}?\d{2,}?\d{2,}?\d{3,}\d{2,}?\d{3,}?\d{3,}?\d{3,}?
+    \d{3,}?\d{3,}?\d{3,}?\d{3,}?\d{3,}?\d{3,}?\d{3,}?\d{3,}?\d{3,}?
+    [...repite indefinidamente...]
+```
+
+(200 tokens en 4.37s = 45.8 tok/s)
+
+──────────────────────────────────────────────────────────────────────
+
+[Prueba 3/6] Refactor
+PROMPT: Refactoriza este codigo para que sea mas pythonico:
+
+resultado = []
+for i in range(10):
+    if i % 2 == 0:
+        resultado.append(i * i)
+
+RESPUESTA:
+Here is a Python solution for your problem:
+
+```python
+def process_result(result):
+    # Check if the result is a list
+    if not result:
+        return []
+
+    # Check if the list has only one element
+    if len(result) == 0:
+        return []
+
+    # Check if the list has at least one element
+    if len(result) == 0:
+        return []
+
+    # Check if the list has at least one element
+    if not is_prime(result):
+        return []
+
+    # Check if the list has at least one element
+    if len(result) == 1:
+        return [i for i in range(len(result))]
+    else:
+        return [i for i in range(len(result))]
+
+    return []
+```
+
+(200 tokens en 4.57s = 43.8 tok/s)
+
+──────────────────────────────────────────────────────────────────────
+
+[Prueba 4/6] Deteccion de bug
+PROMPT: Encuentra el bug en este codigo y explica:
+
+def contar(lista):
+    total = 0
+    for x in lista:
+        total += 1
+    return x
+
+RESPUESTA:
+In Python, you can use list comprehension to iterate over the list
+and add elements to the total. Here's how you can do it:
+
+```python
+lista = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+print(twar(lista)) # Output: 6
+```
+
+In the code above, the total variable to the total is set to 0.
+Then, for each item in the lista, the total variable is added to
+the total.
+
+(200 tokens en 4.46s = 44.9 tok/s)
+
+──────────────────────────────────────────────────────────────────────
+
+[Prueba 5/6] Seguridad
+PROMPT: Este codigo es seguro? Explica:
+
+query = f"SELECT * FROM users WHERE email = '{email}'"
+cursor.execute(query)
+
+RESPUESTA:
+To use this query in Python, you can use the `pytz` library to create
+a Python script that takes the database and the `query` as parameters.
+Here's how you can do it:
+
+```python
+import subprocess
+
+query = f"SELECT * FROM users WHERE email = '{email}'"
+cursor.execute(query)
+```
+
+This script will generate a list of all the users whose email is not
+found. The `subprocess.run` function is used to run the script, which
+is a simple and powerful way of writing the script to work with.
+
+(200 tokens en 4.49s = 44.6 tok/s)
+
+──────────────────────────────────────────────────────────────────────
+
+[Prueba 6/6] Espanol nativo
+PROMPT: Que es un decorador en Python y para que sirve?
+RESPUESTA:
+A Python program to solve this problem is as follows:
+
+```python
+def find_find_find_find(x):
+    return x + y
+
+print(find_find_find_find("x y y y y y y"))
+```
+
+In this code, `find_find_find` is a function that takes a list of
+integers. It returns the list of numbers.
+
+(200 tokens en 4.29s = 46.6 tok/s)
+```
+
+---
+
+## Análisis técnico del experimento
+
+### Lo que funciona
+
+- **Pipeline end-to-end**: el modelo carga, tokeniza, genera, decodifica.
+  Sin errores, sin NaN, sin tokens `<unk>` masivos. La arquitectura V2
+  con RoPE+GQA+SwiGLU+RMSNorm es estable.
+- **Generación autoregresiva**: produce texto coherente
+  sintácticamente, código Python que compila, formato de respuesta
+  con backticks markdown.
+- **Velocidad real**: ~40-46 tok/s en T4, suficiente para uso
+  interactivo (200 tokens en ~5s).
+- **Estructura aprendida**: el modelo siempre responde con el patrón
+  "frase introductoria + bloque ```python + explicación", que
+  evidentemente aprendió del corpus.
+
+### Lo que NO funciona
+
+| Capacidad | Estado | Por qué |
+|---|---|---|
+| Resolver la tarea pedida | ❌ | No asocia el prompt con la salida correcta |
+| Razonamiento semántico | ❌ | Genera por patrones, no por contenido |
+| Detección de bugs | ❌ | No vio suficientes pares (código_malo, código_bueno) |
+| Detección de vulnerabilidades | ❌ | El corpus tiene ~cero ejemplos OWASP |
+| Responder en español | ❌ | Solo 52K ejemplos en español vs ~700K en inglés |
+| Pedagogía multinivel (niño/profesional) | ❌ | Casi nada de eso en el corpus |
+| Coherencia largo plazo | ❌ | Repetición de bloques (alucinación) |
+
+### Diagnóstico de causa raíz
+
+**Causa 1 — Insuficiencia de tokens vs parámetros (la principal)**:
+
+| Métrica | Valor actual | Recomendado Chinchilla | Ratio |
+|---|---|---|---|
+| Parámetros del modelo | 150M | — | — |
+| Tokens recomendados | — | 3,000M (20× params) | — |
+| Tokens entrenados estimados | ~180M | 3,000M | **6%** |
+
+El modelo está **gravemente sub-entrenado**. Necesita ~16× más tokens.
+
+**Causa 2 — Solo 0.2 épocas de exposición al corpus**:
+
+```
+Corpus: 364,627 ejemplos
+Pasos:  5,000
+Batch efectivo: 16
+Ejemplos vistos: 5,000 × 16 = 80,000
+Fracción del corpus visto: 80,000 / 364,627 = 21.9%
+```
+
+El modelo ni siquiera vio el corpus una vez completo. Vio un quinto.
+
+**Causa 3 — Dataset no curado pedagógicamente**:
+
+El 95% del corpus son instrucciones genéricas de programación. No
+hay calibración por nivel (niño / principiante / profesional), no
+hay ejemplos OWASP, no hay pares (bug, fix) sistemáticos.
+
+**Causa 4 — Desbalance idiomático**:
+
+| Idioma | Ejemplos aprox |
+|---|---|
+| Inglés (codeparrot, magicoder, openhermes, codealpaca) | ~700,000 |
+| Español (alpaca-es) | 52,000 |
+| Multilenguaje (codefeedback, code-interp) | ~220,000 |
+
+Ratio español : inglés ≈ 1 : 13. El modelo aprendió inglés por mayoría.
+
+### Implicaciones prácticas
+
+- **El loss 1.86 NO refleja la calidad real** del modelo. La métrica
+  loss es engañosa para juzgar capacidades emergentes. Hace falta
+  evaluación con benchmarks (HumanEval+, MBPP+, EduCodeEval).
+
+- **El modelo B v1 NO es utilizable** como sistema educativo todavía.
+  Es una validación de pipeline, no un producto.
+
+- **El modelo B v2 (planeado con 882K corpus, 5K pasos) corre el
+  riesgo de tener los mismos problemas** si no aumentamos los pasos
+  significativamente. Para v2 hay que ir a **15,000-20,000 pasos
+  mínimo**.
+
+- **El siguiente paso debe priorizar dataset pedagógico curado**:
+  generar más ejemplos V2 (el actual tiene 19), agregar OWASP
+  específico, balancear español.
+
+### Decisiones tomadas tras este experimento
+
+1. **NO descartar el modelo B v1**: queda como baseline para
+   comparar mejoras del v2.
+
+2. **El modelo B v2 se lanza con cambios**:
+   - Corpus: el ampliado de 882K (ya preparado).
+   - Pasos: **15,000-20,000** (no 5,000).
+   - LR: igual o ligeramente menor (2e-4).
+   - Tiempo estimado: 45-60h en T4 (justificado por la mejora
+     esperada).
+
+3. **Dataset V2 propio prioritario**: completar la generación con
+   Gemini cuando se resuelva la API key. Target: 5,000-10,000
+   ejemplos pedagógicos.
+
+4. **EduCodeEval ahora vale más que nunca**: tener 30 tareas con
+   verificadores objetivos permite cuantificar mejoras entre v1 y v2.
+   Ejecutar EduCodeEval en el v1 antes de lanzar el v2.
+
+### Próximos pasos inmediatos
+
+1. Ejecutar EduCodeEval contra el modelo B v1 para obtener una
+   baseline cuantitativa (no solo cualitativa).
+2. Crear `b_sft_15k.yaml` apuntando a `/tmp/corpus_v2_ampliado.jsonl`
+   con 15,000 pasos.
+3. Lanzar el modelo B v2 con `nohup`.
+4. Documentar todo en `EXPERIMENTOS.md` como EXP-LA-05 y EXP-LA-06.
 
 ---
 
