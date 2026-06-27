@@ -77,6 +77,9 @@ Han pasado **5 días enteros** desde entonces. Esperamos que:
 | 13 | `13-educodeeval-inicio-y-primeras-tareas.png` | Setup EduCodeEval contra el checkpoint del modelo B v1. **30 tareas** iniciando. Primeras 2 tareas: `gen_01_fibonacci` FAIL (10.0), `gen_02_palindromo` FAIL (10.0). |
 | 14 | `14-educodeeval-scores-tareas-detalle.png` | Detalle por tarea: seguridad (`seg_03_pickle_inseguro`, `seg_04_password_hashing`, `seg_05_jwt_alg_none`) todos con `obj=0.0 FAIL`. Refactorización: `ref_01_elif_chain_a_dict` **65.0 OK** (la única refactor aprobada). Enseñanza: `ens_01_variable_nino` **70.0 OK** y `ens_04_funcion_nino` **70.0 OK** (las dos OK son de "nivel niño"). |
 | 15 | `15-educodeeval-resultado-global-23-78.png` | **RESULTADO GLOBAL del modelo B v1**: tareas aprobadas 3/30 (10.0%). Score por categoría: enseñanza 37.86, refactorización 35.00, explicación 33.20, generación 10.00, seguridad 0.80. **Score global: 23.78 / 100**. JSON guardado en `training/experiments/edu_modelo_b_v1.json`. |
+| 16 | `16-git-pull-y-corpus-ampliado.png` | `git pull` trayendo el commit `abd6cc9` (3 archivos: EXPERIMENTOS.md +80, capturas README +303, b_sft_15k.yaml +69). Después `cat datasets/publicos/*.jsonl datasets/raw/*.jsonl > /tmp/corpus_v2_ampliado.jsonl`. Resultado: **882,961 ejemplos** consolidados (incluye los V2 generados), **2.0 GB**. |
+| 17 | `17-modelo-b-v2-lanzado-nohup.png` | Lanzamiento del modelo B v2: `nohup python -m ml.training.run_fase --config ml/training/configs/b_sft_15k.yaml > entrenamiento_B_v2.log 2>&1 &`. PID asignado: **10064**. Archivo `entrenamiento_B_v2.log` creado en el directorio. |
+| 18 | `18-modelo-b-v2-proceso-vivo-y-setup.png` | Confirmación: 2 procesos vivos (10064 bash wrapper, **10074 python real consumiendo 99.3% CPU y 18 GB RAM**). Setup del modelo cargado correctamente: `[train] modelo 150.7M params device=cuda dtype=bfloat16 amp=True gc=True` + `[train] total_pasos=15000 batch=2 grad_accum=8 lr=0.0002`. |
 
 ---
 
