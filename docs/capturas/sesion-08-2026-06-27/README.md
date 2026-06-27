@@ -2,7 +2,37 @@
 
 **Fecha**: 2026-06-27
 **Días transcurridos desde la sesión 7**: 5
-**Lugar**: Lightning AI Studio (a confirmar estado)
+**Lugar**: Lightning AI Studio
+
+---
+
+## ⚠️ Nota sobre las capturas físicas
+
+Las primeras 19 capturas de esta sesión **se perdieron**: se tomaron
+con Snipping Tool (`Win+Shift+S`) sin tener activado el guardado
+automático, por lo que las imágenes solo llegaron al portapapeles
+(donde se copiaron al chat de trabajo) pero **nunca quedaron como
+archivo en disco**.
+
+Lo que SÍ se conservó como referencia equivalente:
+
+- Las **descripciones textuales detalladas** de cada captura en la
+  tabla de abajo. Cualquier persona puede reconstruir qué se vio en
+  cada momento.
+- Los **logs reales del entrenamiento**:
+  - `entrenamiento_B.log` (modelo B v1, completado)
+  - `entrenamiento_B_v2.log` (modelo B v2, en curso)
+  - `dataset_v2_media.log` y `dataset_v2_completar.log`
+- Las **métricas en JSONL**:
+  - `training/checkpoints/B_sft_5k/metrics.jsonl` (v1)
+  - `training/checkpoints/B_sft_15k/metrics.jsonl` (v2)
+- El **JSON de EduCodeEval**: `training/experiments/edu_modelo_b_v1.json`
+- Los **commits de Git** con el log cronológico completo.
+
+**Decisión tomada para la sesión 8 en adelante**: activar guardado
+automático en Snipping Tool, o usar `Win+PrtScn` (que siempre guarda
+archivo) para capturar el final de la sesión 8 (capturas 20+) y todas
+las sesiones siguientes.
 
 ---
 
