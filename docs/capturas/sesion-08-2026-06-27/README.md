@@ -73,6 +73,10 @@ Han pasado **5 días enteros** desde entonces. Esperamos que:
 | 09 | `09-inferencia-pruebas-2-y-3.png` | **Prueba 2 (list comprehension a niño)**: respuesta en inglés con regex sin sentido. **Prueba 3 (refactor)**: bucle de alucinación con `if len(result) == 0` repetido cuatro veces. |
 | 10 | `10-inferencia-pruebas-3-y-4.png` | Continuación Prueba 3 + **Prueba 4 (bug detection)**: inventa función `twar(lista)`, no detecta el bug real. Velocidad consistente 43-45 tok/s. |
 | 11 | `11-inferencia-pruebas-5-y-6.png` | **Prueba 5 (SQL injection)**: sugiere `pytz` y `subprocess`, cero detección de vulnerabilidad. **Prueba 6 (decorador en español)**: responde en INGLÉS sobre `find_find_find` — confirma que el modelo no aprendió español ni el concepto. |
+| 12 | `12-dataset-v2-completar-lanzado.png` | `nohup python -m ml.data.construir_dataset_v2 --salida-dir datasets/raw --escala media > dataset_v2_completar.log 2>&1 &` — lanzado en background, PID 34704. Sin `--reset` para no borrar los generadores que ya tienen datos (pensamiento, decision, seguridad, etc.). |
+| 13 | `13-educodeeval-inicio-y-primeras-tareas.png` | Setup EduCodeEval contra el checkpoint del modelo B v1. **30 tareas** iniciando. Primeras 2 tareas: `gen_01_fibonacci` FAIL (10.0), `gen_02_palindromo` FAIL (10.0). |
+| 14 | `14-educodeeval-scores-tareas-detalle.png` | Detalle por tarea: seguridad (`seg_03_pickle_inseguro`, `seg_04_password_hashing`, `seg_05_jwt_alg_none`) todos con `obj=0.0 FAIL`. Refactorización: `ref_01_elif_chain_a_dict` **65.0 OK** (la única refactor aprobada). Enseñanza: `ens_01_variable_nino` **70.0 OK** y `ens_04_funcion_nino` **70.0 OK** (las dos OK son de "nivel niño"). |
+| 15 | `15-educodeeval-resultado-global-23-78.png` | **RESULTADO GLOBAL del modelo B v1**: tareas aprobadas 3/30 (10.0%). Score por categoría: enseñanza 37.86, refactorización 35.00, explicación 33.20, generación 10.00, seguridad 0.80. **Score global: 23.78 / 100**. JSON guardado en `training/experiments/edu_modelo_b_v1.json`. |
 
 ---
 

@@ -1,0 +1,69 @@
+# ════════════════════════════════════════════════════════════════════
+# Entrenamiento modelo B v2 (150M) — SFT sobre corpus ampliado, 15000 pasos.
+#
+# Continuacion natural del b_sft_5k.yaml (v1). Cambios respecto al v1:
+#
+# 1. Corpus: 882K ejemplos (2.4x mas que el v1) en
+#    /tmp/corpus_v2_ampliado.jsonl
+#    - codeparrot-py (200K): Python real de GitHub
+#    - openhermes (200K): conversaciones de calidad
+#    - alpaca-es (52K): instrucciones en espanol
+#    - open-code-interp (66K): codigo con feedback de ejecucion
+#    - + los 10 datasets originales del v1
+#    - + dataset V2 propio
+#
+# 2. Pasos: 15000 (3x mas que el v1)
+#    Justificacion: el v1 con 5000 pasos solo vio 22% del corpus
+#    de 364K. Con 15000 pasos sobre 882K, el modelo ve ~27% del
+#    corpus ampliado (todavia poco, pero mejor).
+#
+# 3. LR ligeramente menor: 2e-4 (vs 3e-4 del v1) para mas estabilidad
+#    en runs largos.
+#
+# 4. save_cada=750 (en lugar de 500): menos overhead de IO en runs largos.
+#
+# Resultado esperado:
+# - EduCodeEval baseline v1: 23.78/100
+# - EduCodeEval target v2:   35-50/100 (mejora del 50-100%)
+# - Loss objetivo: 1.5-1.8 (vs 1.87 del v1)
+#
+# Tiempo estimado: 45-60h en T4 (con gradient checkpointing).
+# Costo Lightning interrumpible: ~15-20 USD.
+# ════════════════════════════════════════════════════════════════════
+
+fase: b_sft_15k
+descripcion: "SFT modelo B v2 (150M) sobre corpus ampliado 882K — 15000 pasos"
+modo: sft
+seed: 42
+device: auto
+
+modelo:
+  preset: sota_b    # 150M params, RoPE+GQA+SwiGLU+RMSNorm (mismo que v1)
+
+modelo_base: null   # Desde cero, NO continued pretraining del v1.
+                    # Para hacer continued de v1, pasar:
+                    # training/checkpoints/B_sft_5k/checkpoint_ultimo.pt
+
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
+
+corpus:
+  jsonl: /tmp/corpus_v2_ampliado.jsonl   # 882K ejemplos consolidados
+  # Sin val_jsonl — evaluamos con EduCodeEval al final, no con loss val.
+
+training:
+  per_device_batch_size: 2
+  grad_accum_steps: 8           # batch efectivo 16 (mismo que v1)
+  max_pasos: 15000              # 3x mas que el v1
+  epocas: 1
+  learning_rate: 2.0e-4         # Ligeramente menor para estabilidad
+  min_learning_rate: 2.0e-5
+  warmup_ratio: 0.02            # Warmup mas corto en runs largos
+  weight_decay: 0.1
+  grad_clip: 1.0
+  dtype: auto                   # bfloat16 en T4 si soporta
+  gradient_checkpointing: true  # Obligatorio para 150M en T4
+  eval_cada: 1000               # sin val no hace eval, pero queda preparado
+  save_cada: 750                # checkpoint cada ~2h
+  log_cada: 50
+
+salida: training/checkpoints/B_sft_15k

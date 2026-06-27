@@ -473,6 +473,86 @@ nohup python -m ml.data.construir_dataset_v2 \
 
 **Resultado pendiente**: a completar al finalizar la ejecución.
 
+### 9.5 EXP-LA-05: Inferencia + EduCodeEval contra modelo B v1
+
+**Objetivo**: medir cuantitativamente la capacidad del modelo B v1
+con dos métodos: (a) suite manual de 6 pruebas pedagógicas, (b)
+EduCodeEval con 30 tareas verificables.
+
+**Configuración**:
+
+| Parámetro | Valor |
+|---|---|
+| Checkpoint | `training/checkpoints/B_sft_5k/checkpoint_ultimo.pt` (1.7 GB) |
+| Tokenizer | `ml/tokenizer/artefactos/sp_v2_16k.model` |
+| Modelo | 150,725,376 params, V2 |
+| Sampling | temperatura=0.7, top-k=40, top-p=0.9 |
+| Max tokens | 200 por respuesta |
+| Hardware | Tesla T4 16 GB |
+
+**Resultado (a) — Suite manual de 6 pruebas pedagógicas**:
+
+Análisis cualitativo en `docs/capturas/sesion-08-2026-06-27/README.md`.
+Velocidad: 39-46 tok/s. Modelo carga en 4.6s.
+
+| # | Categoría | Resultado |
+|---|---|---|
+| 1 | Generación básica (promedio) | Genera función incorrecta |
+| 2 | Explicación pedagógica | Regex sin sentido |
+| 3 | Refactor | Bucle de alucinación |
+| 4 | Detección de bug | Inventa función `twar` |
+| 5 | Seguridad (SQL injection) | Sugiere `pytz` |
+| 6 | Español nativo | Responde en inglés |
+
+**Resultado (b) — EduCodeEval (30 tareas verificables)**:
+
+| Métrica | Valor |
+|---|---|
+| Tareas aprobadas | 3 / 30 |
+| Porcentaje | 10.0% |
+| **Score global** | **23.78 / 100** |
+
+Por categoría:
+
+| Categoría | Score / 100 | Peso | Aprobadas |
+|---|---|---|---|
+| Enseñanza | 37.86 | 1.5× | 2/7 (ambas "nivel niño") |
+| Refactorización | 35.00 | 1.0× | 1/5 (elif_chain_a_dict) |
+| Explicación | 33.20 | 1.2× | 0/5 |
+| Generación | 10.00 | 1.0× | 0/8 |
+| Seguridad | 0.80 | 1.3× | 0/5 |
+
+Las únicas 3 tareas aprobadas:
+
+- `ref_01_elif_chain_a_dict` (refactorización, 65.0)
+- `ens_01_variable_nino` (enseñanza, 70.0)
+- `ens_04_funcion_nino` (enseñanza, 70.0)
+
+**Hallazgos clave**:
+
+1. **La categoría más fuerte es Enseñanza (37.86)** y específicamente
+   las dos tareas aprobadas son de nivel "niño". El modelo
+   espontáneamente desarrolló alguna capacidad de simplificación
+   pedagógica, posiblemente por exposición a alpaca-es y openhermes.
+2. **La seguridad es casi cero (0.80)**: ningún ejemplo OWASP curado
+   en el corpus → el modelo no sabe ni nombrar las vulnerabilidades.
+3. **Generación 10.00**: el modelo no resuelve tareas de código
+   concretas. Solo genera estructura.
+4. **23.78/100 como baseline cuantitativa**: cualquier mejora futura
+   del v2 será directamente comparable.
+
+**Implicaciones para el modelo B v2**:
+
+- Mantener arquitectura sota_b (no es el problema).
+- Aumentar pasos: 15,000-20,000 (vs 5,000 del v1).
+- Usar corpus ampliado: 882K (vs 364K del v1).
+- Prioridad de generación V2: tipos "seguridad" y "bug_sutil" que
+  el corpus general no cubre.
+- Re-evaluar con EduCodeEval al terminar el v2 para cuantificar
+  mejora.
+
+**JSON con resultado completo**: `training/experiments/edu_modelo_b_v1.json`.
+
 ---
 
 ## 8. Reproducibilidad
