@@ -52,7 +52,7 @@ param(
     [Parameter(Mandatory=$true)]
     [string[]]$Nombres,
 
-    [string]$CarpetaOrigen = "$env:USERPROFILE\OneDrive\Imágenes\Capturas de pantalla",
+    [string]$CarpetaOrigen = "",
 
     [switch]$AutoCommit
 )
@@ -72,6 +72,53 @@ $carpetaDestino = Join-Path $repoRoot "docs\capturas\sesion-$SesionId-$Fecha"
 if (-not (Test-Path $carpetaDestino)) {
     Write-Host "Creando carpeta destino: $carpetaDestino" -ForegroundColor Yellow
     New-Item -ItemType Directory -Path $carpetaDestino | Out-Null
+}
+
+# Detectar carpeta origen automaticamente si no se paso por parametro.
+# Probamos rutas comunes en Windows (OneDrive y local, espanol e ingles).
+# Usamos wildcards para evitar problemas de codificacion con tildes.
+if (-not $CarpetaOrigen) {
+    $rutasPosibles = @(
+        # OneDrive en espanol con tilde — usamos wildcard para evitar encoding
+        "$env:USERPROFILE\OneDrive\Im*genes\Capturas de pantalla",
+        "$env:USERPROFILE\OneDrive\Im*genes\Screenshots",
+        # OneDrive en ingles
+        "$env:USERPROFILE\OneDrive\Pictures\Screenshots",
+        "$env:USERPROFILE\OneDrive\Pictures\Capturas de pantalla",
+        # Local sin OneDrive en espanol
+        "$env:USERPROFILE\Im*genes\Capturas de pantalla",
+        # Local sin OneDrive en ingles
+        "$env:USERPROFILE\Pictures\Screenshots",
+        # Snipping Tool nuevo (Windows 11)
+        "$env:USERPROFILE\OneDrive\Im*genes\Recortes de pantalla",
+        "$env:USERPROFILE\Im*genes\Recortes de pantalla"
+    )
+
+    Write-Host "Detectando carpeta de capturas automaticamente..." -ForegroundColor Cyan
+    foreach ($ruta in $rutasPosibles) {
+        # Resolve-Path expande el wildcard si la carpeta existe.
+        $resolved = Resolve-Path -Path $ruta -ErrorAction SilentlyContinue
+        if ($resolved) {
+            $CarpetaOrigen = $resolved.Path
+            Write-Host "  [OK] Encontrada: $CarpetaOrigen" -ForegroundColor Green
+            break
+        }
+    }
+
+    if (-not $CarpetaOrigen) {
+        Write-Error @"
+No se pudo detectar la carpeta de capturas automaticamente. Rutas probadas:
+$($rutasPosibles -join "`n  ")
+
+Pasa la ruta explicitamente con -CarpetaOrigen "ruta\completa", por ejemplo:
+  .\scripts\mover_capturas.ps1 -SesionId 08 -Fecha 2026-06-27 -Nombres @(...) ``
+      -CarpetaOrigen "$env:USERPROFILE\OneDrive\Imagenes\Capturas de pantalla"
+
+(Tambien podes copiar la ruta desde Windows Explorer: abri la carpeta y
+copia la barra de direcciones.)
+"@
+        exit 1
+    }
 }
 
 # Verificar carpeta origen
