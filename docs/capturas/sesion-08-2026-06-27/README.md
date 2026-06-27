@@ -67,6 +67,8 @@ Han pasado **5 días enteros** desde entonces. Esperamos que:
 | 03 | `03-modelo-b-v1-terminado-checkpoint.png` | Logs finales del entrenamiento — `[done] paso=5000 checkpoint final: training/checkpoints/B_sft_5k/checkpoint_ultimo.pt`. Loss final: **1.8651**. `ls -lh` mostrando `checkpoint_ultimo.pt` de 1.7 GB. |
 | 04 | `04-metricas-inicio-vs-final.png` | `metrics.jsonl` INICIO (paso 25 loss=8.65 → paso 125 loss=6.03) vs FINAL (paso 4775 loss=1.93 → paso 5000 loss=1.86). |
 | 05 | `05-dataset-v2-atorado-rate-limit.png` | Generador V2 atorado en bucle de 429 (rate limit) de Groq. `ls` de `datasets/raw/` mostrando: pensamiento_v1.jsonl 71K, decision_v1.jsonl 19K, seguridad_v1.jsonl 15K, multinivel_v1.jsonl 6K, arquitectura_v1.jsonl 4.4K, antipatron_v1.jsonl 2.5K, bug_sutil_v1.jsonl 0 (vacío), evolucion_v1.jsonl 0 (vacío). |
+| 06 | `06-buscar-script-inferencia.png` | `ls ml/ \| grep -iE "(infer\|generate\|chat)"` revelando que existen `ml/generate.py` (script V1) y la carpeta `ml/inference/` (engine V1). Confirma que NO había script de inferencia compatible con la arquitectura V2 — por eso se crea `ml/inferencia/generar_v2.py`. |
+| 07 | `07-git-pull-pkill-pip.png` | Tres acciones en una línea: (1) `git pull` que trae los commits `eb24603..346c7c5` (sistema de capturas + scripts de automatización: 4 archivos, 509 líneas). (2) `pkill -9 -f construir_dataset_v2` que retorna sin matar nada porque el proceso V2 ya no estaba vivo (probablemente Lightning lo mató por inactividad días antes). (3) `pip install -q sentencepiece` exitoso. Terminal lista para ejecutar la inferencia. |
 
 ---
 
