@@ -133,13 +133,35 @@ $numCapturas = $Nombres.Count
 Write-Host "Buscando las ultimas $numCapturas capturas en:" -ForegroundColor Cyan
 Write-Host "  $CarpetaOrigen"
 
-$capturas = Get-ChildItem -Path $CarpetaOrigen -Filter "*.png" -File |
+$extensionesValidas = @('.png', '.jpg', '.jpeg')
+$capturas = Get-ChildItem -Path $CarpetaOrigen -File |
+    Where-Object { $extensionesValidas -contains $_.Extension.ToLower() } |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First $numCapturas |
     Sort-Object LastWriteTime  # Re-ordenar cronologicamente (mas vieja primero)
 
 if ($capturas.Count -eq 0) {
-    Write-Error "No se encontraron archivos PNG en $CarpetaOrigen"
+    $totalArchivos = (Get-ChildItem -Path $CarpetaOrigen -File -ErrorAction SilentlyContinue).Count
+    Write-Error @"
+No se encontraron archivos de imagen (PNG/JPG/JPEG) en:
+  $CarpetaOrigen
+
+Total de archivos en la carpeta: $totalArchivos
+
+CAUSAS COMUNES:
+
+1. Snipping Tool (Win+Shift+S) por defecto SOLO copia al portapapeles,
+   no guarda como archivo. Solucion: usar Win+PrtScn (guarda automaticamente)
+   o activar 'Guardar capturas automaticamente' en la configuracion de
+   Recortes (Snipping Tool > ... > Configuracion).
+
+2. Los archivos podrian estar en otra carpeta. Probar:
+   Get-ChildItem -Path '$CarpetaOrigen' | Format-Table Name, LastWriteTime
+
+3. La carpeta esta sincronizada con OneDrive pero los archivos son
+   'files on demand'. Click derecho en la carpeta > 'Conservar siempre
+   en este dispositivo'.
+"@
     exit 1
 }
 
@@ -149,7 +171,8 @@ if ($capturas.Count -lt $numCapturas) {
 }
 
 # Determinar el siguiente numero de archivo en la carpeta destino
-$existentes = Get-ChildItem -Path $carpetaDestino -Filter "*.png" -File -ErrorAction SilentlyContinue
+$existentes = Get-ChildItem -Path $carpetaDestino -File -ErrorAction SilentlyContinue |
+    Where-Object { $extensionesValidas -contains $_.Extension.ToLower() }
 $siguienteNumero = 1
 if ($existentes) {
     $maxNumero = ($existentes | ForEach-Object {
