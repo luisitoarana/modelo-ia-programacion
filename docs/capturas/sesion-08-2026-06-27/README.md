@@ -80,6 +80,7 @@ Han pasado **5 días enteros** desde entonces. Esperamos que:
 | 16 | `16-git-pull-y-corpus-ampliado.png` | `git pull` trayendo el commit `abd6cc9` (3 archivos: EXPERIMENTOS.md +80, capturas README +303, b_sft_15k.yaml +69). Después `cat datasets/publicos/*.jsonl datasets/raw/*.jsonl > /tmp/corpus_v2_ampliado.jsonl`. Resultado: **882,961 ejemplos** consolidados (incluye los V2 generados), **2.0 GB**. |
 | 17 | `17-modelo-b-v2-lanzado-nohup.png` | Lanzamiento del modelo B v2: `nohup python -m ml.training.run_fase --config ml/training/configs/b_sft_15k.yaml > entrenamiento_B_v2.log 2>&1 &`. PID asignado: **10064**. Archivo `entrenamiento_B_v2.log` creado en el directorio. |
 | 18 | `18-modelo-b-v2-proceso-vivo-y-setup.png` | Confirmación: 2 procesos vivos (10064 bash wrapper, **10074 python real consumiendo 99.3% CPU y 18 GB RAM**). Setup del modelo cargado correctamente: `[train] modelo 150.7M params device=cuda dtype=bfloat16 amp=True gc=True` + `[train] total_pasos=15000 batch=2 grad_accum=8 lr=0.0002`. |
+| 19 | `19-modelo-b-v2-proceso-4min-sin-log.png` | Segundo chequeo tras 4 minutos: PID 10074 sigue vivo con **99.7% CPU** y TIME **4:18**, demostrando que la GPU está trabajando. El log aún no muestra pasos porque el config tiene `log_cada: 50` — el primer log saldrá ~paso 50 (≈ 9 min desde el inicio a 0.09 p/s). **No hay problema**: el modelo está entrenando, solo está silenciando los pasos previos al primer log. |
 
 ---
 
