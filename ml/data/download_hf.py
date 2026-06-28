@@ -543,17 +543,45 @@ def main() -> None:
         sys.exit(1)
 
     total = 0
+    fallidos = []
+    exitosos = []
+
     if len(nombres) == 1:
         ruta = Path(args.salida) if args.salida else Path(f"datasets/raw/{nombres[0]}.jsonl")
-        total += descargar(nombres[0], ruta, args.max_items, schema_v2=args.schema_v2)
+        try:
+            total += descargar(nombres[0], ruta, args.max_items, schema_v2=args.schema_v2)
+            exitosos.append(nombres[0])
+        except Exception as exc:
+            print(f"\n[!] FALLO {nombres[0]}: {type(exc).__name__}: {str(exc)[:200]}")
+            fallidos.append((nombres[0], str(exc)[:200]))
     else:
         base = Path(args.salida_dir or "datasets/raw")
         for n in nombres:
             ruta = base / f"{n}.jsonl"
-            total += descargar(n, ruta, args.max_items, schema_v2=args.schema_v2)
+            try:
+                total += descargar(n, ruta, args.max_items, schema_v2=args.schema_v2)
+                exitosos.append(n)
+            except KeyboardInterrupt:
+                # No silenciar Ctrl+C
+                print(f"\n[!] Interrumpido por el usuario en {n}")
+                raise
+            except Exception as exc:
+                print(f"\n[!] FALLO {n}: {type(exc).__name__}: {str(exc)[:200]}")
+                fallidos.append((n, str(exc)[:200]))
+                # Sigue con el siguiente dataset
+                continue
 
     print()
-    print(f"Hecho. {total} ejemplos en total.")
+    print("=" * 60)
+    print(f"RESUMEN DE DESCARGA")
+    print("=" * 60)
+    print(f"Total ejemplos descargados: {total}")
+    print(f"Datasets exitosos ({len(exitosos)}): {', '.join(exitosos) if exitosos else '(ninguno)'}")
+    if fallidos:
+        print(f"Datasets fallidos ({len(fallidos)}):")
+        for n, err in fallidos:
+            print(f"  - {n}: {err}")
+    print("=" * 60)
 
 
 if __name__ == "__main__":
