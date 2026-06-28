@@ -1,0 +1,52 @@
+# ════════════════════════════════════════════════════════════════════
+# Modelo GRANDE (88M, sota_grande) — Version 5000 pasos para Kaggle.
+#
+# Por que esta version mas corta:
+#   El timeout de Kaggle es 12 horas. La version de 10000 pasos
+#   tardaba 10-12h, peligrosamente cerca del limite. Esta version
+#   con 5000 pasos termina en 5-6h, dejando margen amplio.
+#
+# Despues podemos hacer "continued" desde el checkpoint de esta
+# corrida para llegar a 10000 pasos (segunda corrida de otras 5-6h).
+#
+# Comparacion con el modelo B v1 que entreno en Lightning:
+#   - B v1 (150M):  5000 pasos en 15.5h → loss 1.86
+#   - este (88M):   5000 pasos en ~5h    → loss esperada 2.5-3.0
+#
+# Eso da un primer punto de la curva de scaling laws con tiempo
+# razonable. Despues escalamos.
+# ════════════════════════════════════════════════════════════════════
+
+fase: grande_sft_kaggle_5k
+descripcion: "SFT modelo grande (88M) en Kaggle T4 x2 — 5000 pasos"
+modo: sft
+seed: 42
+device: auto
+
+modelo:
+  preset: sota_grande   # 88M params
+
+modelo_base: null
+
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
+
+corpus:
+  jsonl: /kaggle/working/corpus_v2.jsonl
+
+training:
+  per_device_batch_size: 4
+  grad_accum_steps: 4           # batch efectivo 16
+  max_pasos: 5000               # version corta para Kaggle
+  epocas: 1
+  learning_rate: 3.0e-4
+  min_learning_rate: 3.0e-5
+  warmup_ratio: 0.03
+  weight_decay: 0.1
+  grad_clip: 1.0
+  dtype: auto
+  gradient_checkpointing: false # 88M cabe sin GC
+  eval_cada: 500
+  save_cada: 250                # checkpoint cada ~15 min (mas conservador)
+  log_cada: 25
+
+salida: /kaggle/working/checkpoints/grande_sft_5k
