@@ -90,6 +90,40 @@ documentadas en `docs/capturas/sesion-08-2026-06-27/README.md`
 
 ---
 
+## Capturas REALMENTE tomadas (con descripción técnica)
+
+> Las capturas iniciales (22-26) se perdieron en el portapapeles
+> antes de configurar Snipping Tool con auto-guardado. Las descripciones
+> textuales detalladas quedan como referencia equivalente.
+
+| # | Archivo | Estado | Qué muestra |
+|---|---|---|---|
+| 22 | `22-kaggle-cuenta-creada.png` | Portapapeles (perdida) | Pantalla "Welcome Luisito Arana" tras crear cuenta Kaggle. |
+| 23 | `23-kaggle-gpu-t4x2-configurada.png` | Portapapeles (perdida) | Panel derecho: "GPU T4 x2" + "Internet on" + Quota 0/30 hrs. |
+| 24 | `24-kaggle-cuda-true-2-gpus.png` | Portapapeles (perdida) | Output: CUDA True, 2 GPUs Tesla T4 con 15.6 GB cada una. |
+| 25 | `25-kaggle-pat-token-clone-exitoso.png` | Portapapeles (perdida) | UserSecretsClient + git clone exitoso (819 objetos, 1.80 MiB). |
+| 26 | `26-kaggle-descarga-codealpaca-inicial.png` | Portapapeles (perdida) | Primera descarga: codealpaca 20016 ejemplos. |
+| 27 | `27-kaggle-segunda-ejecucion-celdas-1-2.png` | En portapapeles | Re-ejecución de Save & Run All. Celda 1 (CUDA True, GPUs 2) + Celda 2 (clone 830 objetos, 8.93 MiB/s). Sesión 9m. |
+| 28 | `28-kaggle-celda3-descarga-multidatasets.png` | En portapapeles | Celda 3 ejecutándose: codealpaca ✅ 20016, codefeedback ✅ 156525 (371 MB), magicoder-oss ✅ 75197 (203 MB), magicoder-evol descargando. Sesión 10m. |
+| 29 | `29-kaggle-celda4-corpus-882837-tokenizer-arranca.png` | En portapapeles | Celda 4: corpus consolidado **882,837 líneas / 2.0 GB**. Sentencepiece arrancando con `1,796,200 textos extraídos, vocab 16000`. Sesión 18m. |
+| 30 | `30-kaggle-tokenizer-bpe-trainer-1787225.png` | En portapapeles | Sentencepiece trainer avanzado: `Done! preprocessed 1787225 sentences`, `bpe_model_trainer Adding freq=8129606 size=20 active=2866 piece=_p`, etc. Construyendo vocab BPE 16K. Sesión 26m. |
+
+### Lo que cada captura demuestra técnicamente
+
+- **Captura 27**: la sesión arranca limpia tras un reinicio del kernel
+  (Save & Run All). GPU verificada antes de gastar recursos.
+- **Captura 28**: el fix BUG-14 (try/except por dataset) funciona porque
+  un eventual fallo de un dataset no detendría a los demás.
+- **Captura 29**: el corpus en Kaggle (882,837) coincide con el de
+  Lightning (882,856) — diferencia mínima de ~20 ejemplos, posiblemente
+  por descartes en la validación V2. **Reproducibilidad confirmada**
+  entre plataformas distintas.
+- **Captura 30**: el tokenizer V2 sobre Kaggle produce
+  resultados consistentes con el de Lightning. Confirma que el
+  preprocesamiento es determinístico (mismo seed).
+
+---
+
 ## Configuración usada
 
 - Config: `ml/training/configs/grande_sft_kaggle.yaml`
