@@ -108,6 +108,7 @@ documentadas en `docs/capturas/sesion-08-2026-06-27/README.md`
 | 29 | `29-kaggle-celda4-corpus-882837-tokenizer-arranca.png` | En portapapeles | Celda 4: corpus consolidado **882,837 líneas / 2.0 GB**. Sentencepiece arrancando con `1,796,200 textos extraídos, vocab 16000`. Sesión 18m. |
 | 30 | `30-kaggle-tokenizer-bpe-trainer-1787225.png` | En portapapeles | Sentencepiece trainer avanzado: `Done! preprocessed 1787225 sentences`, `bpe_model_trainer Adding freq=8129606 size=20 active=2866 piece=_p`, etc. Construyendo vocab BPE 16K. Sesión 26m. |
 | 31 | `31-kaggle-modelo-grande-88m-paso-500.png` | En portapapeles | **¡MODELO GRANDE 88M ENTRENANDO!** Log: `[train] modelo 87.8M params device=cuda dtype=bfloat16 amp=True gc=False`. Loss bajando: paso 25=8.61, paso 100=6.82, paso 250=5.44, paso 500=4.67. Checkpoint guardado en paso 250. Status bar muestra paso 1475/5000 con loss 3.2040. Velocidad: **0.19 pasos/s (2× más rápida que el B 150M de Lightning)**. Sesión: 6h:11m. ETA restante: 389 min. |
+| 32 | `32-kaggle-modelo-grande-paso-3325-convergiendo.png` | En portapapeles | **Modelo grande 88M en paso 3325/5000 (66.5%)**. Loss convergiendo en 2.55-2.67 (plateau de convergencia). Checkpoints guardados en paso 3000 y 3250. Panel de recursos: **GPU T4 ×2 ON, GPU 0 al 100% util, 7.1 GiB VRAM usados, 9.1 GiB RAM, Disk 7.8 GiB**. Sesión 6h:15m / 12h, ETA restante 145 min. **El entrenamiento va a terminar exitosamente con margen de ~3h sobre el timeout**. |
 
 ### Lo que cada captura demuestra técnicamente
 
