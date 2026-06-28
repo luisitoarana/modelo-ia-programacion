@@ -1,0 +1,73 @@
+# ════════════════════════════════════════════════════════════════════
+# Modelo GRANDE (88M, sota_grande) — Entrenamiento desde cero en Kaggle.
+#
+# OBJETIVO ESTRATEGICO: llenar el hueco en la curva de scaling laws
+# del proyecto. Hasta ahora teniamos:
+#   - smoke 30M (sota_experto) → loss 3.94
+#   - B v1 150M (sota_b)       → loss 1.86, EduCodeEval 23/100
+# Falta el punto intermedio 88M para una curva con 3 puntos comparables.
+#
+# RECURSO: Kaggle Notebook con GPU T4 x2 (gratis, 30h/semana).
+#   - Total VRAM: 31.2 GB (vs 15.6 GB de Lightning T4 simple)
+#   - Sesion maxima por run: 12 horas → necesita checkpoints frecuentes
+#
+# CORPUS: el mismo de 882K ejemplos consolidados que el v2.
+#   IMPORTANTE: en Kaggle se reconstruye dentro de /kaggle/working/.
+#
+# CONFIG OPTIMIZADA PARA KAGGLE T4 x2:
+#   - per_device_batch_size: 4 (88M cabe holgado en 15 GB)
+#   - grad_accum_steps: 4    (batch efectivo 16, mismo que v1/v2)
+#   - save_cada: 300         (checkpoint cada ~30 min, sobrevive a
+#                              cierres inesperados de Kaggle)
+#   - max_pasos: 10000        (objetivo: ~10h de entrenamiento)
+#   - log_cada: 25            (feedback frecuente, evita ansiedad)
+#
+# RESULTADO ESPERADO:
+#   - Loss final objetivo: 2.0-2.5 (entre smoke 3.94 y B 1.86)
+#   - EduCodeEval esperado: 15-25/100 (comparable o ligeramente menor
+#     que B v1, util como punto de scaling)
+#   - Tiempo: 10-15h en T4 simple, menos si usamos ambas T4 con DDP
+#     (futuro upgrade del runner)
+#
+# COMPLEMENTARIEDAD CON LIGHTNING:
+#   - Lightning (cuando vuelva): continua modelo B v2 (150M, 15K pasos)
+#   - Kaggle (ahora):            modelo grande 88M (este config)
+#   - Cero duplicacion. Maxima eficiencia de horas gratis.
+# ════════════════════════════════════════════════════════════════════
+
+fase: grande_sft_kaggle
+descripcion: "SFT modelo grande (88M) en Kaggle T4 x2 — 10000 pasos"
+modo: sft
+seed: 42
+device: auto
+
+modelo:
+  preset: sota_grande   # 88M params, RoPE+GQA+SwiGLU+RMSNorm
+
+modelo_base: null       # Desde cero
+
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
+
+corpus:
+  # En Kaggle el corpus se reconstruye dentro del workspace persistente.
+  # Si no existe, primero ejecutar:
+  #   cat datasets/publicos/*.jsonl datasets/raw/*.jsonl > /kaggle/working/corpus_v2.jsonl
+  jsonl: /kaggle/working/corpus_v2.jsonl
+
+training:
+  per_device_batch_size: 4      # 88M cabe holgado con bs=4
+  grad_accum_steps: 4           # batch efectivo 16 (consistente con v1/v2)
+  max_pasos: 10000
+  epocas: 1
+  learning_rate: 3.0e-4         # LR mas alto que v2 (modelo mas chico tolera)
+  min_learning_rate: 3.0e-5
+  warmup_ratio: 0.03
+  weight_decay: 0.1
+  grad_clip: 1.0
+  dtype: auto                   # bfloat16 en T4
+  gradient_checkpointing: false # 88M cabe sin GC, ahorra ~30% tiempo
+  eval_cada: 500
+  save_cada: 300                # checkpoint cada ~30 min para Kaggle
+  log_cada: 25                  # log frecuente (vs 50 del v2)
+
+salida: /kaggle/working/checkpoints/grande_sft_10k
