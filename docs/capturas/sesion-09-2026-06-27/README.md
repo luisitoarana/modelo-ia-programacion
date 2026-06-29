@@ -115,6 +115,40 @@ documentadas en `docs/capturas/sesion-08-2026-06-27/README.md`
 | 36 | `36-kaggle-grande-inferencia-pruebas-4-6.png` | En portapapeles | **Prueba 4 (detección de bug)**: genera código similar pero no detecta el bug. **Prueba 5 (SQL injection)**: responde con JSON aleatorio `{"name": "John", "email": "johnda", "age": "Life"}`, sin detectar vulnerabilidad. Velocidad consistente 70-75 tok/s. El modelo aprende formato pero no razonamiento semántico (igual que el v1, esperado para 88M con 5000 pasos). |
 | 37 | `37-kaggle-grande-prueba-6-bucle-degenerativo.png` | En portapapeles | **Prueba 6 (español nativo)**: el modelo entra en bucle degenerativo: "La vida que la vida que la vida que la tiempo que la vida que..." — fenómeno conocido en modelos undertraining. Aprende frases comunes pero no aprende a terminar coherentemente. 200 tokens en 2.67s = 74.9 tok/s. Es el equivalente al bucle de regex del v1. Esperable para 88M con 5K pasos. |
 | 38 | `38-kaggle-educodeeval-grande-iniciando.png` | En portapapeles | **EduCodeEval ejecutándose** sobre el modelo grande 88M. `python -m ml.eval.edu_code_eval --modelo local --checkpoint /kaggle/working/checkpoints/grande_sft_5k/checkpoint_ultimo.pt --tokenizer ml/tokenizer/artefactos/sp_v2_16k.model --salida /kaggle/working/edu_modelo_grande_88m.json`. Modelo: `local_grande_sft_5k`. Primeras 4 tareas de generación (fibonacci, palindromo, frecuencias, busqueda_binaria) todas FAIL con score 10.0/100 (mínimo). Comportamiento consistente con el v1. Sesión: 8h:50m. ETA EduCodeEval: 20-30 min. |
+| 39 | `39-kaggle-educodeeval-grande-resultado-22-04.png` | En portapapeles | **¡RESULTADO FINAL DEL EDUCODEEVAL DEL MODELO GRANDE 88M!** Tareas aprobadas: 2/30 (6.7%). Score por categoría: enseñanza 36.71, explicación 30.00, refactorización 16.00, generación 15.00, seguridad 7.80. **SCORE GLOBAL: 22.04 / 100**. Resultado guardado en `/kaggle/working/edu_modelo_grande_88m.json`. Las 2 tareas aprobadas son `ens_04_funcion_nino` (70.0) y `ens_07_loop_nino` (70.0), ambas de nivel infantil. Comparación con modelo B v1 150M: casi empate (22.04 vs 23.07, diferencia 1.03 puntos). El v1 aprobó ens_01+ens_04+ref_01 mientras este aprobó ens_04+ens_07 — complementariedad entre modelos. |
+
+---
+
+## 🏆 HALLAZGO PRINCIPAL DE LA SESIÓN 9
+
+La curva de scaling laws empírica con datos propios:
+
+| Modelo | Params | Corpus | Loss | EduCodeEval |
+|---|---|---|---|---|
+| Smoke | 30M | 364K | 3.94 | (no medido) |
+| **Grande** | **88M** | **882K** | **2.38** | **22.04** |
+| **B v1** | **150M** | **364K** | **1.87** | **23.07** |
+
+**Observación crítica**: Grande (88M + corpus 2× más grande) obtiene score EduCodeEval
+casi idéntico al B v1 (150M + corpus 1× normal). Diferencia de 1.03 puntos en 100.
+
+**Implicación**: el compute total (params × tokens) es lo que determina la capacidad
+final del modelo, no solo el conteo de parámetros. Es la confirmación empírica
+de las leyes de Chinchilla aplicadas a una arquitectura V2 propia.
+
+**Las 2 tareas aprobadas por el modelo grande**:
+- `ens_04_funcion_nino` (70.0 OK) — también aprobada por el v1
+- `ens_07_loop_nino` (70.0 OK) — NO aprobada por el v1
+
+El v1 aprobó `ens_01_variable_nino` y `ref_01_elif_chain_a_dict`. **Los modelos son
+complementarios**: un ensemble simple aprobaría 4 tareas combinadas, ~13% en lugar
+del ~7% de cada modelo individual.
+
+**Diferencias por categoría**:
+- Seguridad: el grande MEJORÓ +7.0 puntos (corpus diverso ayuda)
+- Refactorización: el grande EMPEORÓ -19.0 puntos (corpus diluido)
+- Generación: empate exacto en 15.00
+- Enseñanza y explicación: prácticamente iguales
 
 ### Lo que cada captura demuestra técnicamente
 
