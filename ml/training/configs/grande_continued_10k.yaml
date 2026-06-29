@@ -1,0 +1,49 @@
+# ════════════════════════════════════════════════════════════════════
+# CONTINUED 5K → 10K — Modelo grande 88M, paso 5001 al 10000
+#
+# Carga el checkpoint final del grande_sft_kaggle_5k (loss 2.38) y
+# entrena 5000 pasos más. Total acumulado: 10000 pasos.
+#
+# Estimación: ~7 horas en Kaggle T4 simple (cabe en 12h timeout).
+# Loss esperada al paso 10000: ~2.0
+# EduCodeEval esperado: 25-28 / 100
+#
+# Requisito: subir checkpoint_ultimo.pt del 5K como Kaggle Dataset
+# privado (o tenerlo en /kaggle/working/ de una sesión activa).
+# ════════════════════════════════════════════════════════════════════
+
+fase: grande_continued_10k
+descripcion: "Continued grande 88M paso 5K→10K"
+modo: sft
+seed: 42
+device: auto
+
+modelo:
+  preset: sota_grande
+
+# Reanuda desde el checkpoint del 5K
+# Si subiste a Kaggle Dataset, cambiar a /kaggle/input/<dataset>/modelo_grande_88m_5k.pt
+modelo_base: /kaggle/working/checkpoints/grande_sft_5k/checkpoint_ultimo.pt
+
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
+
+corpus:
+  jsonl: /kaggle/working/corpus_v2.jsonl
+
+training:
+  per_device_batch_size: 4
+  grad_accum_steps: 4
+  max_pasos: 10000              # acumulado total
+  epocas: 1
+  learning_rate: 1.5e-4         # LR menor (modelo ya caliente)
+  min_learning_rate: 1.5e-5
+  warmup_ratio: 0.0             # sin warmup en continued
+  weight_decay: 0.1
+  grad_clip: 1.0
+  dtype: auto
+  gradient_checkpointing: false
+  eval_cada: 500
+  save_cada: 250
+  log_cada: 25
+
+salida: /kaggle/working/checkpoints/grande_continued_10k

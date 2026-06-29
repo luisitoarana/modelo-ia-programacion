@@ -1,0 +1,46 @@
+# ════════════════════════════════════════════════════════════════════
+# CONTINUED 20K → 25K — Modelo grande 88M, paso 20001 al 25000
+#
+# Carga checkpoint del 20K y entrena 5000 pasos más. Total: 25000.
+# Estimación: ~7 horas en Kaggle T4 simple.
+# Loss esperada al paso 25000: ~1.5
+# EduCodeEval esperado: 35-39 / 100
+#
+# NOTA: A partir de aquí los retornos se vuelven decrecientes.
+# Cada 5000 pasos adicionales mejoran ~0.1 puntos de loss y
+# ~3-4 puntos de EduCodeEval.
+# ════════════════════════════════════════════════════════════════════
+
+fase: grande_continued_25k
+descripcion: "Continued grande 88M paso 20K→25K"
+modo: sft
+seed: 42
+device: auto
+
+modelo:
+  preset: sota_grande
+
+modelo_base: /kaggle/working/checkpoints/grande_continued_20k/checkpoint_ultimo.pt
+
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
+
+corpus:
+  jsonl: /kaggle/working/corpus_v2.jsonl
+
+training:
+  per_device_batch_size: 4
+  grad_accum_steps: 4
+  max_pasos: 25000
+  epocas: 1
+  learning_rate: 6.0e-5
+  min_learning_rate: 6.0e-6
+  warmup_ratio: 0.0
+  weight_decay: 0.1
+  grad_clip: 1.0
+  dtype: auto
+  gradient_checkpointing: false
+  eval_cada: 500
+  save_cada: 250
+  log_cada: 25
+
+salida: /kaggle/working/checkpoints/grande_continued_25k
