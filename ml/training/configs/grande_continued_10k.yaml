@@ -22,7 +22,11 @@ modelo:
   preset: sota_grande
 
 # Reanuda desde el checkpoint del 5K
-# Si subiste a Kaggle Dataset, cambiar a /kaggle/input/<dataset>/modelo_grande_88m_5k.pt
+# El path estandar de Kaggle Datasets es:
+#   /kaggle/input/datasets/{usuario}/{nombre-dataset}/{archivo}
+# Para usar este config, primero copiar el archivo al path esperado:
+#   !cp /kaggle/input/datasets/luisitoarana/modelo-grande-88m-5k-pasos/modelo_grande_88m_5k.pt \
+#       /kaggle/working/checkpoints/grande_sft_5k/checkpoint_ultimo.pt
 modelo_base: /kaggle/working/checkpoints/grande_sft_5k/checkpoint_ultimo.pt
 
 tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
