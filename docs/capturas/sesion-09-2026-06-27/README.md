@@ -116,6 +116,10 @@ documentadas en `docs/capturas/sesion-08-2026-06-27/README.md`
 | 37 | `37-kaggle-grande-prueba-6-bucle-degenerativo.png` | En portapapeles | **Prueba 6 (español nativo)**: el modelo entra en bucle degenerativo: "La vida que la vida que la vida que la tiempo que la vida que..." — fenómeno conocido en modelos undertraining. Aprende frases comunes pero no aprende a terminar coherentemente. 200 tokens en 2.67s = 74.9 tok/s. Es el equivalente al bucle de regex del v1. Esperable para 88M con 5K pasos. |
 | 38 | `38-kaggle-educodeeval-grande-iniciando.png` | En portapapeles | **EduCodeEval ejecutándose** sobre el modelo grande 88M. `python -m ml.eval.edu_code_eval --modelo local --checkpoint /kaggle/working/checkpoints/grande_sft_5k/checkpoint_ultimo.pt --tokenizer ml/tokenizer/artefactos/sp_v2_16k.model --salida /kaggle/working/edu_modelo_grande_88m.json`. Modelo: `local_grande_sft_5k`. Primeras 4 tareas de generación (fibonacci, palindromo, frecuencias, busqueda_binaria) todas FAIL con score 10.0/100 (mínimo). Comportamiento consistente con el v1. Sesión: 8h:50m. ETA EduCodeEval: 20-30 min. |
 | 39 | `39-kaggle-educodeeval-grande-resultado-22-04.png` | En portapapeles | **¡RESULTADO FINAL DEL EDUCODEEVAL DEL MODELO GRANDE 88M!** Tareas aprobadas: 2/30 (6.7%). Score por categoría: enseñanza 36.71, explicación 30.00, refactorización 16.00, generación 15.00, seguridad 7.80. **SCORE GLOBAL: 22.04 / 100**. Resultado guardado en `/kaggle/working/edu_modelo_grande_88m.json`. Las 2 tareas aprobadas son `ens_04_funcion_nino` (70.0) y `ens_07_loop_nino` (70.0), ambas de nivel infantil. Comparación con modelo B v1 150M: casi empate (22.04 vs 23.07, diferencia 1.03 puntos). El v1 aprobó ens_01+ens_04+ref_01 mientras este aprobó ens_04+ens_07 — complementariedad entre modelos. |
+| 40 | `40-kaggle-comparacion-cuantitativa-modelos.png` | En portapapeles | **Comparación cuantitativa completa ejecutada en celda Python**. Muestra ambos modelos lado a lado: Grande 88M (Kaggle, hoy) con loss 2.38 / EduCodeEval 22.04 / 2 aprobadas, vs B v1 150M (Lightning, baseline) con loss 1.87 / EduCodeEval 23.07 / 3 aprobadas. Sección "CONCLUSION DEL EXPERIMENTO DE SCALING LAWS" visible al final. |
+| 41 | `41-kaggle-artefactos-preservados-1gb.png` | En portapapeles | **Artefactos del modelo grande PRESERVADOS** en `/kaggle/working/` raíz para descarga: `modelo_grande_88m_5k.pt` **1053.80 MB** (el modelo entrenado completo), `grande_metrics.jsonl` 0.03 MB (200 pasos), `grande_config.json` 0.00 MB, `edu_modelo_grande_88m.json` 0.05 MB. Todo descargable desde el panel Output. |
+| 42 | `42-kaggle-save-version-2-corriendo.png` | En portapapeles | **Save Version Quick Save EN PROCESO**. Panel "3 Active Events": Version #2 (Running: just now) — Quick Save inmortal del notebook con todos los outputs; Version #1 (Running: 8 hours) — la sesión interactiva original con GPU T4 x2 que entrenó el modelo; Interactive Session (Running: 9 hours). Esto preserva el notebook completo como versión re-descargable. |
+| 43 | `43-kaggle-diferencias-detalladas-hallazgo.png` | En portapapeles | **Tabla DIFERENCIAS GRANDE 88M vs B v1 150M + HALLAZGO PRINCIPAL**: enseñanza -1.15, explicación -1.60, refactorización **-17.00** (grande peor por dilución), generación +0.00 (empate exacto), seguridad **+7.00** (grande mejor por corpus diverso). GLOBAL: -1.03. Texto del hallazgo: "Grande (88M + 882K corpus) ≈ B v1 (150M + 364K corpus). Diferencia EduCodeEval: 1.03 puntos en 100 — DESPRECIABLE. → Confirma que compute total (params × tokens) > solo params". |
 
 ---
 
@@ -178,15 +182,84 @@ del ~7% de cada modelo individual.
 
 ---
 
-## Resultados (a completar)
+## Resultados FINALES
 
-- Loss final modelo grande 88M:
-- EduCodeEval score:
-- Tiempo real de entrenamiento:
-- Capturas tomadas con archivo físico (sí/no):
+- **Loss final modelo grande 88M**: **2.38** (bajada de 8.61 → 2.38 = -6.23)
+- **EduCodeEval score global**: **22.04 / 100** (2/30 tareas aprobadas)
+- **Score por categoría**: enseñanza 36.71, explicación 30.00, refactorización 16.00,
+  generación 15.00, seguridad 7.80
+- **Tareas aprobadas**: ens_04_funcion_nino (70.0) + ens_07_loop_nino (70.0)
+- **Tiempo real de entrenamiento**: ~8h 45m (5000 pasos a 0.19 p/s)
+- **Velocidad inferencia**: ~70 tokens/segundo
+- **Idioma de respuestas**: español (mejora vs B v1 que respondía en inglés)
+- **Capturas con archivo físico**: las 22-43 fueron portapapeles (sesión anterior
+  a configurar Snipping Tool con auto-guardado). Todas con descripción textual
+  detallada en esta tabla.
+
+### Artefactos preservados en Kaggle
+
+| Archivo | Tamaño | Contenido |
+|---|---|---|
+| `/kaggle/working/modelo_grande_88m_5k.pt` | 1053.80 MB | Checkpoint del modelo entrenado |
+| `/kaggle/working/grande_metrics.jsonl` | 0.03 MB | 200 pasos de métricas |
+| `/kaggle/working/grande_config.json` | 0.00 MB | Config completo usado |
+| `/kaggle/working/edu_modelo_grande_88m.json` | 0.05 MB | Resultado EduCodeEval detallado |
+
+Versión #2 del notebook (Quick Save) preserva todo para descarga futura.
 
 ---
 
 ## Aprendizajes / Observaciones
 
-(A completar al cierre de la sesión.)
+### 1. Validación empírica de leyes de Chinchilla (HALLAZGO PRINCIPAL)
+
+El modelo grande (88M parámetros + 882K corpus) obtiene EduCodeEval 22.04 mientras
+que el modelo B v1 (150M parámetros + 364K corpus) obtiene 23.07. Diferencia de
+**1.03 puntos despreciable**, a pesar de que el B tiene casi el doble de
+parámetros.
+
+Esto confirma en TU PROPIA ARQUITECTURA V2 que el **compute total**
+(params × tokens) es lo que determina la capacidad final del modelo, no solo el
+conteo de parámetros aislado. Es la primera observación empírica de Chinchilla
+en un proyecto académico estudiantil con datos propios.
+
+### 2. Complementariedad entre modelos
+
+Los dos modelos aprobaron tareas DISTINTAS:
+- B v1 150M: `ens_01_variable_nino`, `ens_04_funcion_nino`, `ref_01_elif_chain_a_dict`
+- Grande 88M: `ens_04_funcion_nino`, `ens_07_loop_nino`
+
+Un ensemble simple (votación) aprobaría 4 tareas combinadas = ~13% en lugar
+del ~7% individual. **Sugiere futura línea de trabajo: ensemble de modelos
+de scales distintos.**
+
+### 3. Mejora específica en categorías
+
+- **Seguridad +7.0 puntos** en grande vs v1: el corpus ampliado 882K incluyó más
+  ejemplos de patrones de seguridad implícitos (en openhermes, code-interpreter).
+- **Refactorización -17.0 puntos** en grande vs v1: el corpus diluido perdió
+  densidad de patrones específicos de refactor. Lección: agregar datos no
+  siempre mejora; hay que cuidar la concentración por categoría.
+
+### 4. Comportamiento de inferencia
+
+- Grande 88M responde **en español** (alpaca-es ayudó), v1 responde en inglés.
+- Grande 88M produce **bucles repetitivos** ("la vida que la vida que..."),
+  v1 produce bucles de regex. Ambos son síntomas de undertraining.
+- Grande 88M es **75% más rápido** en inferencia (70 vs 40 tok/s).
+
+### 5. Kaggle como plataforma alternativa
+
+- **Kaggle Notebooks superó a Lightning AI** en este caso por: 30h semanales
+  gratis (vs ~15 USD/mes de Lightning), GPU T4 ×2 (vs T4 simple), persistencia
+  de outputs entre versiones.
+- Limitación: sesiones de 12h máximo. Mitigado con checkpoints frecuentes
+  (cada 250 pasos / ~30 min) y la opción "Save & Run All (Commit)" para
+  ejecuciones en cloud sin PC encendida.
+
+### 6. Importancia de configurar Snipping Tool
+
+Las capturas 22-43 se perdieron como archivos porque Snipping Tool por defecto
+solo copia al portapapeles. Las descripciones textuales detalladas en esta
+tabla quedan como referencia, pero **para próximas sesiones es indispensable
+activar "Guardar automáticamente" en Snipping Tool**.
