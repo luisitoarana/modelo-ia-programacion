@@ -1,30 +1,27 @@
 <#
 .SYNOPSIS
-    Version DEFINITIVA — mueve TODAS las capturas del proyecto de tu PC al repo.
+    Version DEFINITIVA — mueve las capturas de tu PC al repo usando los nombres
+    EXACTOS que estan en los README.md de cada sesion.
 
 .DESCRIPTION
-    Busca todas las capturas PNG/JPG en OneDrive/Imagenes/Capturas de pantalla
-    y las clasifica por fecha, moviendolas a las carpetas correctas de sesion.
-
-    Sesiones documentadas:
-    - sesion-07-2026-06-22 (smoke test + modelo B v1 + datasets)
-    - sesion-08-2026-06-27 (inferencia + EduCodeEval + modelo B v2)
-    - sesion-09-2026-06-27 (Kaggle + modelo grande 88M)
-
-    Si hay capturas de fechas fuera de esas sesiones, crea una nueva
-    carpeta con la fecha del dia.
+    1. Lee los README.md de cada sesion en docs/capturas/sesion-XX/
+    2. Extrae los nombres esperados de capturas (formato: XX-nombre.png)
+    3. Encuentra las capturas de tu PC en OneDrive/Imagenes/Capturas de pantalla
+    4. Las agrupa por sesion segun fecha del archivo
+    5. Las renombra y mueve usando los nombres exactos del README
+    6. Opcionalmente hace git add + commit + push
 
 .PARAMETER DryRun
-    Si se especifica, solo MUESTRA lo que haria sin mover nada.
+    Solo muestra que haria sin mover archivos.
 
 .PARAMETER AutoCommit
-    Si se especifica, hace git add + commit + push automatico.
+    Hace git add + commit + push automatico despues de mover.
 
 .EXAMPLE
-    # Ver que capturas hay, sin mover:
+    # Ver que haria:
     .\scripts\mover_todas_capturas.ps1 -DryRun
 
-    # Mover todo + commit + push automatico:
+    # Mover todo y subir:
     .\scripts\mover_todas_capturas.ps1 -AutoCommit
 #>
 
@@ -36,7 +33,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Detectar carpeta de capturas (con o sin tildes)
+# === Detectar carpeta de capturas ===
 $rutasPosibles = @(
     "$env:USERPROFILE\OneDrive\Im*genes\Capturas de pantalla",
     "$env:USERPROFILE\OneDrive\Pictures\Screenshots",
@@ -54,16 +51,14 @@ foreach ($ruta in $rutasPosibles) {
 }
 
 if (-not $carpetaCapturas) {
-    Write-Error "No se pudo detectar la carpeta de capturas."
-    Write-Host "Especifica la ruta manualmente."
+    Write-Error "No se encontro carpeta de capturas."
     exit 1
 }
 
-Write-Host "Carpeta de capturas detectada:" -ForegroundColor Cyan
-Write-Host "  $carpetaCapturas"
+Write-Host "Carpeta de capturas: $carpetaCapturas" -ForegroundColor Cyan
 Write-Host ""
 
-# Detectar raiz del repo
+# === Detectar raiz del repo ===
 $repoRoot = git rev-parse --show-toplevel 2>$null
 if (-not $repoRoot) {
     Write-Error "No estas en un repo git."
@@ -71,195 +66,237 @@ if (-not $repoRoot) {
 }
 $repoRoot = $repoRoot.Replace('/', '\')
 
-# Definir sesiones y sus rangos de fecha
+# === Definir sesiones y sus rangos de fecha ===
 $sesiones = @(
     @{
         Id = "sesion-07-2026-06-22"
         FechaInicio = [datetime]"2026-06-22 00:00:00"
         FechaFin = [datetime]"2026-06-26 23:59:59"
-        Descripcion = "Smoke test + Modelo B v1 + Datasets iniciales"
+        Descripcion = "Smoke + B v1 + Datasets"
     },
     @{
         Id = "sesion-08-2026-06-27"
         FechaInicio = [datetime]"2026-06-27 00:00:00"
-        FechaFin = [datetime]"2026-06-27 12:00:00"
-        Descripcion = "Inferencia + EduCodeEval del B v1 + Sistema capturas"
+        FechaFin = [datetime]"2026-06-27 20:00:00"
+        Descripcion = "Inferencia B v1 + EduCodeEval"
     },
     @{
         Id = "sesion-09-2026-06-27"
-        FechaInicio = [datetime]"2026-06-27 12:00:00"
-        FechaFin = [datetime]"2026-06-29 23:59:59"
-        Descripcion = "Kaggle + Modelo grande 88M + EduCodeEval grande"
+        FechaInicio = [datetime]"2026-06-27 20:00:00"
+        FechaFin = [datetime]"2026-06-29 12:00:00"
+        Descripcion = "Kaggle + Modelo grande 88M"
     }
 )
 
-# Buscar todas las capturas
+# === Funcion: extraer nombres esperados del README de una sesion ===
+function Get-NombresEsperados {
+    param([string]$RutaReadme)
+
+    if (-not (Test-Path $RutaReadme)) {
+        return @()
+    }
+
+    $contenido = Get-Content $RutaReadme -Raw -Encoding UTF8
+    # Buscar patrones tipo `01-nombre.png` o `22-otro-nombre.png`
+    $matches = [regex]::Matches($contenido, '`(\d+-[a-z0-9-]+\.png)`')
+
+    $nombres = @()
+    $vistos = @{}
+    foreach ($m in $matches) {
+        $nombre = $m.Groups[1].Value
+        # Extraer el numero para ordenar
+        $numero = [int]($nombre -replace '^(\d+).*', '$1')
+        if (-not $vistos.ContainsKey($numero)) {
+            $vistos[$numero] = $true
+            $nombres += [PSCustomObject]@{
+                Numero = $numero
+                Nombre = $nombre
+            }
+        }
+    }
+
+    return $nombres | Sort-Object Numero
+}
+
+# === Encontrar capturas en tu PC ===
 $extensionesValidas = @('.png', '.jpg', '.jpeg')
 $todasLasCapturas = Get-ChildItem -Path $carpetaCapturas -File |
     Where-Object { $extensionesValidas -contains $_.Extension.ToLower() } |
     Sort-Object LastWriteTime
 
-Write-Host "Total de imagenes encontradas en tu PC: $($todasLasCapturas.Count)" -ForegroundColor Green
+Write-Host "Total imagenes en tu PC: $($todasLasCapturas.Count)" -ForegroundColor Green
 Write-Host ""
 
-# Clasificar por sesion
-$clasificacion = @{}
-$sinClasificar = @()
-
-foreach ($sesion in $sesiones) {
-    $clasificacion[$sesion.Id] = @()
-}
-
-foreach ($captura in $todasLasCapturas) {
-    $asignada = $false
-    foreach ($sesion in $sesiones) {
-        if ($captura.LastWriteTime -ge $sesion.FechaInicio -and $captura.LastWriteTime -le $sesion.FechaFin) {
-            $clasificacion[$sesion.Id] += $captura
-            $asignada = $true
-            break
-        }
-    }
-    if (-not $asignada) {
-        $sinClasificar += $captura
-    }
-}
-
-# Mostrar resumen
-Write-Host "==============================" -ForegroundColor Cyan
-Write-Host "  RESUMEN DE CLASIFICACION" -ForegroundColor Cyan
-Write-Host "==============================" -ForegroundColor Cyan
+# === Procesar cada sesion ===
+Write-Host "=====================================" -ForegroundColor Cyan
+Write-Host "  PLAN DE MOVIMIENTO" -ForegroundColor Cyan
+Write-Host "=====================================" -ForegroundColor Cyan
 Write-Host ""
 
+$planCompleto = @()
+$sinAsignar = @()
+
 foreach ($sesion in $sesiones) {
-    $count = $clasificacion[$sesion.Id].Count
-    $color = if ($count -gt 0) { 'Green' } else { 'DarkGray' }
-    Write-Host "[$($sesion.Id)]" -ForegroundColor $color
+    # Filtrar capturas por rango de fecha
+    $capturasSesion = $todasLasCapturas | Where-Object {
+        $_.LastWriteTime -ge $sesion.FechaInicio -and $_.LastWriteTime -le $sesion.FechaFin
+    } | Sort-Object LastWriteTime
+
+    # Leer nombres esperados del README
+    $rutaReadme = Join-Path $repoRoot "docs\capturas\$($sesion.Id)\README.md"
+    $nombresEsperados = Get-NombresEsperados -RutaReadme $rutaReadme
+
+    Write-Host "[$($sesion.Id)]" -ForegroundColor Yellow
     Write-Host "  Descripcion: $($sesion.Descripcion)"
-    Write-Host "  Capturas encontradas: $count" -ForegroundColor $color
+    Write-Host "  Capturas encontradas (por fecha): $($capturasSesion.Count)"
+    Write-Host "  Nombres esperados en README: $($nombresEsperados.Count)"
+
+    if ($capturasSesion.Count -eq 0) {
+        Write-Host "  (no hay capturas de tu PC para esta sesion)" -ForegroundColor DarkGray
+        Write-Host ""
+        continue
+    }
+
+    if ($nombresEsperados.Count -eq 0) {
+        Write-Host "  (no hay nombres esperados en el README — se usaran genericos)" -ForegroundColor DarkYellow
+    }
+
+    # Emparejar en orden cronologico con los nombres esperados
+    $i = 0
+    foreach ($captura in $capturasSesion) {
+        if ($i -lt $nombresEsperados.Count) {
+            $nombreDestino = $nombresEsperados[$i].Nombre
+        } else {
+            # Fallback: nombre generico si hay mas capturas que nombres
+            $num = "{0:D2}" -f ($i + 1)
+            $ts = Get-Date $captura.LastWriteTime -Format 'HHmm'
+            $nombreDestino = "$num-captura-$ts$($captura.Extension.ToLower())"
+        }
+
+        $planCompleto += [PSCustomObject]@{
+            Origen = $captura.FullName
+            Fecha = $captura.LastWriteTime
+            Sesion = $sesion.Id
+            NombreDestino = $nombreDestino
+            RutaDestino = Join-Path $repoRoot "docs\capturas\$($sesion.Id)\$nombreDestino"
+        }
+        $i++
+    }
+
+    Write-Host "  Se moveran: $i" -ForegroundColor Green
     Write-Host ""
 }
 
-if ($sinClasificar.Count -gt 0) {
-    Write-Host "[capturas fuera de rango de sesiones conocidas]" -ForegroundColor Yellow
-    Write-Host "  Total: $($sinClasificar.Count)"
-    Write-Host "  Estas se moveran a: sesion-10-$(Get-Date -Format 'yyyy-MM-dd')/"
-    Write-Host ""
-    foreach ($c in ($sinClasificar | Select-Object -First 5)) {
-        Write-Host "    - $($c.Name) ($(Get-Date $c.LastWriteTime -Format 'yyyy-MM-dd HH:mm'))"
+# Capturas fuera de rangos conocidos
+foreach ($captura in $todasLasCapturas) {
+    $enAlgunaSesion = $sesiones | Where-Object {
+        $captura.LastWriteTime -ge $_.FechaInicio -and $captura.LastWriteTime -le $_.FechaFin
     }
-    if ($sinClasificar.Count -gt 5) {
-        Write-Host "    ... y $($sinClasificar.Count - 5) mas"
+    if (-not $enAlgunaSesion) {
+        $sinAsignar += $captura
     }
-    Write-Host ""
 }
+
+if ($sinAsignar.Count -gt 0) {
+    $hoy = Get-Date -Format 'yyyy-MM-dd'
+    $nombreSesionNueva = "sesion-10-$hoy"
+    Write-Host "[$nombreSesionNueva]" -ForegroundColor Yellow
+    Write-Host "  Capturas de fechas fuera de sesiones conocidas: $($sinAsignar.Count)"
+    Write-Host ""
+
+    $i = 0
+    foreach ($captura in ($sinAsignar | Sort-Object LastWriteTime)) {
+        $num = "{0:D2}" -f ($i + 1)
+        $ts = Get-Date $captura.LastWriteTime -Format 'HHmm'
+        $nombreDestino = "$num-captura-$ts$($captura.Extension.ToLower())"
+
+        $planCompleto += [PSCustomObject]@{
+            Origen = $captura.FullName
+            Fecha = $captura.LastWriteTime
+            Sesion = $nombreSesionNueva
+            NombreDestino = $nombreDestino
+            RutaDestino = Join-Path $repoRoot "docs\capturas\$nombreSesionNueva\$nombreDestino"
+        }
+        $i++
+    }
+}
+
+# === Ejecutar plan ===
+Write-Host "=====================================" -ForegroundColor Cyan
+Write-Host "  TOTAL A MOVER: $($planCompleto.Count) capturas" -ForegroundColor Green
+Write-Host "=====================================" -ForegroundColor Cyan
+Write-Host ""
 
 if ($DryRun) {
-    Write-Host "DRY RUN — no se movio nada." -ForegroundColor Yellow
-    Write-Host "Ejecuta sin -DryRun para mover los archivos."
+    Write-Host "DRY RUN — mostrando primeros 10 movimientos que se harian:" -ForegroundColor Yellow
+    Write-Host ""
+    foreach ($mov in ($planCompleto | Select-Object -First 10)) {
+        $origenCorto = Split-Path -Leaf $mov.Origen
+        Write-Host "  $origenCorto"
+        Write-Host "    -> $($mov.Sesion)\$($mov.NombreDestino)" -ForegroundColor DarkGray
+    }
+    if ($planCompleto.Count -gt 10) {
+        Write-Host "  ... y $($planCompleto.Count - 10) mas"
+    }
+    Write-Host ""
+    Write-Host "Ejecuta sin -DryRun para mover realmente." -ForegroundColor Yellow
     exit 0
 }
 
+# Confirmar
+Write-Host "Se van a MOVER $($planCompleto.Count) archivos." -ForegroundColor Yellow
+$confirm = Read-Host "Continuar? (s/n)"
+if ($confirm -ne 's' -and $confirm -ne 'S' -and $confirm -ne 'y' -and $confirm -ne 'Y') {
+    Write-Host "Cancelado." -ForegroundColor Yellow
+    exit 0
+}
+
+# Crear carpetas destino
+$carpetasDestino = ($planCompleto | ForEach-Object { Split-Path $_.RutaDestino }) | Sort-Object -Unique
+foreach ($carpeta in $carpetasDestino) {
+    if (-not (Test-Path $carpeta)) {
+        New-Item -ItemType Directory -Path $carpeta -Force | Out-Null
+    }
+}
+
 # Mover archivos
-Write-Host "MOVIENDO ARCHIVOS..." -ForegroundColor Green
+$totalMovido = 0
+foreach ($mov in $planCompleto) {
+    if (Test-Path $mov.RutaDestino) {
+        Write-Host "  [SKIP] Ya existe: $($mov.NombreDestino)" -ForegroundColor DarkGray
+        continue
+    }
+    try {
+        Move-Item -Path $mov.Origen -Destination $mov.RutaDestino
+        Write-Host "  [OK] $($mov.Sesion)\$($mov.NombreDestino)" -ForegroundColor Green
+        $totalMovido++
+    } catch {
+        Write-Host "  [ERR] $($mov.Origen): $_" -ForegroundColor Red
+    }
+}
+
 Write-Host ""
+Write-Host "$totalMovido archivos movidos con exito." -ForegroundColor Green
 
-$totalMovidos = 0
-$sesionesConCambios = @()
-
-# Mover a sesiones existentes
-foreach ($sesion in $sesiones) {
-    $capturasEnEsta = $clasificacion[$sesion.Id]
-    if ($capturasEnEsta.Count -eq 0) { continue }
-
-    $carpetaDestino = Join-Path $repoRoot "docs\capturas\$($sesion.Id)"
-    if (-not (Test-Path $carpetaDestino)) {
-        New-Item -ItemType Directory -Path $carpetaDestino | Out-Null
-    }
-
-    # Determinar numeracion siguiente
-    $existentes = Get-ChildItem -Path $carpetaDestino -File -ErrorAction SilentlyContinue |
-        Where-Object { $extensionesValidas -contains $_.Extension.ToLower() }
-
-    $siguienteNumero = 1
-    if ($existentes) {
-        $maxNumero = ($existentes | ForEach-Object {
-            if ($_.Name -match '^(\d+)-') { [int]$matches[1] } else { 0 }
-        } | Measure-Object -Maximum).Maximum
-        $siguienteNumero = $maxNumero + 1
-    }
-
-    Write-Host "==> $($sesion.Id) ($($capturasEnEsta.Count) capturas)" -ForegroundColor Cyan
-
-    foreach ($captura in $capturasEnEsta) {
-        $numero = "{0:D2}" -f $siguienteNumero
-        $timestamp = Get-Date $captura.LastWriteTime -Format 'HHmm'
-        $nombreNuevo = "$numero-captura-$timestamp$($captura.Extension.ToLower())"
-        $rutaDestino = Join-Path $carpetaDestino $nombreNuevo
-
-        Move-Item -Path $captura.FullName -Destination $rutaDestino
-        Write-Host "  [OK] $($captura.Name) -> $nombreNuevo"
-        $siguienteNumero++
-        $totalMovidos++
-    }
-    $sesionesConCambios += $sesion.Id
-    Write-Host ""
-}
-
-# Mover sin clasificar a nueva sesion
-if ($sinClasificar.Count -gt 0) {
-    $hoy = Get-Date -Format 'yyyy-MM-dd'
-    $nombreSesionNueva = "sesion-10-$hoy"
-    $carpetaDestino = Join-Path $repoRoot "docs\capturas\$nombreSesionNueva"
-
-    if (-not (Test-Path $carpetaDestino)) {
-        New-Item -ItemType Directory -Path $carpetaDestino | Out-Null
-    }
-
-    Write-Host "==> $nombreSesionNueva ($($sinClasificar.Count) capturas fuera de rango)" -ForegroundColor Cyan
-
-    $numero = 1
-    foreach ($captura in $sinClasificar) {
-        $num = "{0:D2}" -f $numero
-        $timestamp = Get-Date $captura.LastWriteTime -Format 'yyyyMMdd-HHmm'
-        $nombreNuevo = "$num-$timestamp$($captura.Extension.ToLower())"
-        $rutaDestino = Join-Path $carpetaDestino $nombreNuevo
-
-        Move-Item -Path $captura.FullName -Destination $rutaDestino
-        Write-Host "  [OK] $($captura.Name) -> $nombreNuevo"
-        $numero++
-        $totalMovidos++
-    }
-    $sesionesConCambios += $nombreSesionNueva
-    Write-Host ""
-}
-
-Write-Host "==============================" -ForegroundColor Green
-Write-Host "  TOTAL MOVIDO: $totalMovidos capturas" -ForegroundColor Green
-Write-Host "==============================" -ForegroundColor Green
-
-# Auto-commit
-if ($AutoCommit -and $totalMovidos -gt 0) {
+# Commit + push
+if ($AutoCommit -and $totalMovido -gt 0) {
     Write-Host ""
     Write-Host "Haciendo commit + push..." -ForegroundColor Cyan
-
     Push-Location $repoRoot
     try {
-        foreach ($sesion in $sesionesConCambios) {
-            git add "docs/capturas/$sesion/"
-        }
+        git add "docs/capturas/"
 
-        $mensajeCommit = "docs(capturas): mover $totalMovidos capturas fisicas al repo`n`nSesiones actualizadas:`n"
-        foreach ($sesion in $sesionesConCambios) {
-            $mensajeCommit += "- $sesion`n"
-        }
+        $mensaje = "docs(capturas): mover $totalMovido capturas fisicas al repo`n`n" +
+                   "Capturas movidas desde carpeta local de Windows a las`n" +
+                   "carpetas correspondientes en docs/capturas/, usando los`n" +
+                   "nombres exactos definidos en los README de cada sesion."
 
         $tmpFile = [System.IO.Path]::GetTempFileName()
-        Set-Content -Path $tmpFile -Value $mensajeCommit -Encoding UTF8
+        Set-Content -Path $tmpFile -Value $mensaje -Encoding UTF8
         git commit -F $tmpFile
         Remove-Item $tmpFile -Force
 
         git push origin main
-
         Write-Host "Commit + push exitosos." -ForegroundColor Green
     } finally {
         Pop-Location
