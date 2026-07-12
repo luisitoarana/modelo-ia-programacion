@@ -1,0 +1,39 @@
+# ════════════════════════════════════════════════════════════════════
+# MODELO C (350M) — CONTINUED hasta 20000 pasos.
+# Carga checkpoint anterior (C_350m_10k) y entrena hasta 20000.
+# Velocidad ~0.05 p/s. Corre en Lightning con nohup.
+# ════════════════════════════════════════════════════════════════════
+
+fase: c_350m_20k
+descripcion: "Modelo C 350M continued hasta 20000 pasos"
+modo: sft
+seed: 42
+device: auto
+
+modelo:
+  preset: sota_c
+
+modelo_base: training/checkpoints/C_350m_10k/checkpoint_ultimo.pt
+
+tokenizer: ml/tokenizer/artefactos/sp_v2_16k.model
+
+corpus:
+  jsonl: /tmp/corpus_v2_ampliado.jsonl
+
+training:
+  per_device_batch_size: 1
+  grad_accum_steps: 16
+  max_pasos: 20000
+  epocas: 1
+  learning_rate: 2.0e-4
+  min_learning_rate: 2.0e-5
+  warmup_ratio: 0.0
+  weight_decay: 0.1
+  grad_clip: 1.0
+  dtype: auto
+  gradient_checkpointing: true
+  eval_cada: 1000
+  save_cada: 500
+  log_cada: 25
+
+salida: training/checkpoints/C_350m_20k
