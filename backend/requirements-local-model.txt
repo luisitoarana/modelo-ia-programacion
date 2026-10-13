@@ -1,0 +1,2 @@
+# Opcional: inferencia GGUF por CPU. Requiere compilador C/C++ y CMake.
+llama-cpp-python>=0.3.16,<0.4

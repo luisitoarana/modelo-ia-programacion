@@ -76,7 +76,11 @@ async def reporte_general(
         ) or 0
         por_tema[tema.value] = int(cnt)
 
-    puntaje_promedio = await sesion.scalar(select(func.avg(Evaluacion.puntaje)))
+    puntaje_promedio = await sesion.scalar(
+        select(func.avg(Evaluacion.puntaje)).where(
+            Evaluacion.tipo_actividad != "explicacion_libre"
+        )
+    )
 
     return {
         "usuarios_total": int(usuarios_total),

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -27,7 +28,7 @@ import 'selector_proveedor.dart';
 ///  - **texto**: archivo de código/markdown leído como string (se inyecta
 ///    en el cuerpo del mensaje al backend).
 ///  - **imagen**: bytes binarios que se envían como multipart al endpoint
-///    `/mensajes-multimodal` (procesados por Gemini Vision en el backend).
+///    `/mensajes-multimodal` (procesados por el procesador de visión del backend).
 class _Adjunto {
   final String nombre;
   final String contenido;     // texto del archivo; '' si es imagen
@@ -66,7 +67,7 @@ String? _detectarMimeImagen(String nombreArchivo) {
   return null;
 }
 
-/// Vista de chat estilo Claude.ai:
+/// Vista de chat interactiva:
 ///  - Mensajes del asistente sin "burbuja", como prosa.
 ///  - Mensajes del usuario en chip discreto a la derecha.
 ///  - Acciones por mensaje al pasar el cursor (copiar, regenerar, feedback).
@@ -104,7 +105,6 @@ class _ChatViewState extends State<ChatView> {
     try {
       final res = await FilePicker.platform.pickFiles(
         allowMultiple: true,
-        withData: true,
         type: FileType.any,
       );
       if (res == null || res.files.isEmpty) return;
@@ -114,13 +114,18 @@ class _ChatViewState extends State<ChatView> {
           omitidos++;
           continue;
         }
-        final bytes = f.bytes;
+        Uint8List? bytes = f.bytes;
+        if (bytes == null && f.path != null) {
+          try {
+            bytes = await File(f.path!).readAsBytes();
+          } catch (_) {}
+        }
         if (bytes == null) {
           omitidos++;
           continue;
         }
 
-        // ¿Es imagen? El backend la enrutará a Gemini Vision.
+        // ¿Es imagen? El backend la enrutará al procesador multimodal.
         final mime = _detectarMimeImagen(f.name);
         if (mime != null) {
           final yaImagenes = _adjuntos.where((a) => a.esImagen).length;
@@ -236,6 +241,8 @@ class _ChatViewState extends State<ChatView> {
           idioma: settings.idioma,
           buscarWeb: buscarWeb,
           proveedor: settings.proveedor,
+          modoAcompanamiento: settings.modoAcompanamiento,
+          nivelModulo: settings.nivelModulo,
         );
     adjuntosPrevios.length;
     _scrollAlFinal();
@@ -270,6 +277,8 @@ class _ChatViewState extends State<ChatView> {
       idioma: settings.idioma,
       buscarWeb: settings.buscarWeb,
       proveedor: settings.proveedor,
+      modoAcompanamiento: settings.modoAcompanamiento,
+      nivelModulo: settings.nivelModulo,
     );
     _scrollAlFinal();
   }
@@ -356,38 +365,67 @@ class _ChatViewState extends State<ChatView> {
                         },
                       ),
           ),
-          _Composer(
-            controller: _ctrl,
-            focus: _composerFocus,
-            enviando: chat.enviando,
-            onEnviar: _enviar,
-            adjuntos: _adjuntos,
-            onAdjuntar: _adjuntarArchivos,
-            onQuitarAdjunto: _quitarAdjunto,
-            buscarWeb: _buscarWebOverride ??
-                context.watch<SettingsProvider>().buscarWeb,
-            onToggleBuscarWeb: _toggleBuscarWeb,
-            localeId: Idiomas.localeVoz(
-              context.watch<SettingsProvider>().idioma,
+          if (settings.esBloqueadoPostTest)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.danger.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.lock_clock_rounded, size: 20, color: AppColors.danger),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Modo de Evaluación Post-Test Activo: El asistente conversacional se encuentra deshabilitado para evaluar las competencias independientes de los estudiantes.',
+                      style: TextStyle(fontSize: 12.5, color: p.text, fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else ...[
+            _Composer(
+              controller: _ctrl,
+              focus: _composerFocus,
+              enviando: chat.enviando,
+              onEnviar: _enviar,
+              adjuntos: _adjuntos,
+              onAdjuntar: _adjuntarArchivos,
+              onQuitarAdjunto: _quitarAdjunto,
+              buscarWeb: _buscarWebOverride ??
+                  context.watch<SettingsProvider>().buscarWeb,
+              onToggleBuscarWeb: _toggleBuscarWeb,
+              localeId: Idiomas.localeVoz(
+                context.watch<SettingsProvider>().idioma,
+              ),
+              onAbrirModoVoz: () => setState(() => _modoVozAbierto = true),
             ),
-            onAbrirModoVoz: () => setState(() => _modoVozAbierto = true),
-          ),
-          const SizedBox(height: 6),
-          _PieAyuda(),
+            const SizedBox(height: 6),
+            _PieAyuda(),
+          ],
         ],
       ),
     );
 
-    // Si el panel de artifacts está abierto, dividimos en dos columnas.
+    // Si el panel de artifacts está abierto, dividimos en dos columnas de forma responsiva.
     final base = artifacts.abierto
-        ? Row(
-            children: [
-              Expanded(flex: 5, child: chatColumn),
-              SizedBox(
-                width: 460,
-                child: ArtifactsPanel(provider: artifacts),
-              ),
-            ],
+        ? LayoutBuilder(
+            builder: (context, constraints) {
+              final panelWidth = (constraints.maxWidth * 0.42).clamp(310.0, 520.0);
+              return Row(
+                children: [
+                  Expanded(child: chatColumn),
+                  SizedBox(
+                    width: panelWidth,
+                    child: ArtifactsPanel(provider: artifacts),
+                  ),
+                ],
+              );
+            },
           )
         : chatColumn;
 
@@ -981,8 +1019,8 @@ class _MensajeWidgetState extends State<_MensajeWidget> {
     final m = widget.mensaje;
 
     if (m.esUsuario) {
-      // Burbuja del usuario estilo Claude.ai: redondeada uniforme,
-      // padding generoso, sin "punta" hacia el avatar (más limpio).
+      // Burbuja del usuario: redondeada uniforme,
+      // padding generoso, sin "punta" hacia el avatar (diseño limpio).
       return Padding(
         padding: const EdgeInsets.only(bottom: 24),
         child: Row(
@@ -1338,7 +1376,7 @@ class _EscribiendoState extends State<_Escribiendo>
                 size: 16, color: Colors.white),
           ),
           const SizedBox(width: 14),
-          // Bubble con los tres dots — estilo ChatGPT/Claude.
+          // Burbuja con tres puntos animados de escritura.
           Container(
             padding: const EdgeInsets.symmetric(
               horizontal: 14, vertical: 12,
@@ -1560,10 +1598,12 @@ class _ComposerState extends State<_Composer> {
                       activo: widget.buscarWeb,
                       onTap: widget.onToggleBuscarWeb,
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     SelectorProveedor(
                       api: context.read<AuthProvider>().api,
                     ),
+                    const SizedBox(width: 6),
+                    const _BotonModoAcompanamiento(),
                     const Spacer(),
                     if (tieneTexto || widget.enviando) ...[
                       Text(
@@ -1738,7 +1778,7 @@ class _ArtifactCTAState extends State<_ArtifactCTA> {
 
 // ─────────────────────────── Botón "Web" (toggle) ───────────────────────────
 
-/// Pill toggle estilo Claude/ChatGPT: siempre con borde visible para que
+/// Pill toggle interactivo: siempre con borde visible para que
 /// se vea claramente que es un control activable; el color de fondo y el
 /// texto cambian a terracota cuando está activo.
 class _BotonWeb extends StatefulWidget {
@@ -1811,6 +1851,70 @@ class _BotonWebState extends State<_BotonWeb> {
                   ],
                 ],
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Selector rápido en el composer para alternar entre:
+/// - "con_acompanamiento" (Andamiaje pedagógico para la tesis)
+/// - "sin_acompanamiento" (Solo código directo)
+class _BotonModoAcompanamiento extends StatelessWidget {
+  const _BotonModoAcompanamiento();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<SettingsProvider>();
+    final p = AppPalette.of(context);
+    final esCon = settings.esConAcompanamiento;
+
+    final color = esCon ? p.primary : p.muted;
+    final bg = esCon ? p.primary.withValues(alpha: 0.10) : p.surface2;
+    final borderColor = esCon ? p.primary.withValues(alpha: 0.35) : p.borderSoft;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Tooltip(
+        message: esCon
+            ? 'Modo: Andamiaje Pedagógico (Explicación didáctica + variables + Big-O + código)'
+            : 'Modo: Sin Acompañamiento (Solo código directo sin teoría)',
+        child: InkWell(
+          onTap: () {
+            final nuevo = esCon ? 'sin_acompanamiento' : 'con_acompanamiento';
+            settings.setModoAcompanamiento(nuevo);
+          },
+          borderRadius: BorderRadius.circular(999),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            height: 30,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: borderColor, width: 1),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  esCon ? Icons.school_outlined : Icons.code,
+                  size: 14,
+                  color: color,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  esCon ? 'Andamiaje' : 'Solo Código',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: color,
+                    fontWeight: esCon ? FontWeight.w600 : FontWeight.w500,
+                    letterSpacing: 0.1,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -1953,19 +2057,10 @@ class _EstadoSistemaCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: _OpcionMini(
-                    icono: Icons.key_outlined,
-                    color: p.primary,
-                    titulo: 'Opción 1 — API rápida',
-                    descripcion: 'Configurar Gemini o DeepSeek. Funciona en segundos.',
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _OpcionMini(
                     icono: Icons.psychology_outlined,
-                    color: AppColors.accent,
-                    titulo: 'Opción 2 — Modelo propio',
-                    descripcion: 'Entrenar tu LLM con ml.train. Toma horas pero es 100% tuyo.',
+                    color: p.primary,
+                    titulo: 'Modelo Propio de la Tesis',
+                    descripcion: 'Inferencia neuronal local 100% offline y andamiaje pedagógico.',
                   ),
                 ),
               ],

@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -12,6 +13,18 @@ import 'widgets/artifacts_panel.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Protección contra cierres inesperados de la aplicación en escritorio
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    debugPrint('[Error UI capturado]: ${details.exception}');
+  };
+
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    debugPrint('[Error de fondo capturado]: $error');
+    return true; // Previene que la excepción cierre el proceso de Windows
+  };
+
   await I18n.instance.cargar();
   final api = ApiClient();
   runApp(

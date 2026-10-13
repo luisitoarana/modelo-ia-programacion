@@ -42,6 +42,36 @@ class ResultadoEjecucion:
     duracion_segundos: float
 
 
+def _verificar_seguridad_python(codigo: str) -> str | None:
+    """Inspección defensiva vía AST para evitar comandos destructivos en la máquina."""
+    import ast
+
+    try:
+        arbol = ast.parse(codigo)
+    except SyntaxError:
+        return None  # Errores sintácticos los maneja el intérprete
+
+    llamadas_bloqueadas = {
+        "os.system", "os.popen", "os.remove", "os.unlink", "os.rmdir",
+        "shutil.rmtree", "subprocess.call", "subprocess.run",
+        "subprocess.Popen", "__import__", "eval", "exec",
+    }
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.Call):
+            nombre = ""
+            if isinstance(nodo.func, ast.Name):
+                nombre = nodo.func.id
+            elif isinstance(nodo.func, ast.Attribute) and isinstance(nodo.func.value, ast.Name):
+                nombre = f"{nodo.func.value.id}.{nodo.func.attr}"
+
+            if nombre in llamadas_bloqueadas:
+                return (
+                    f"[seguridad] La llamada '{nombre}' está bloqueada en el sandbox "
+                    "educativo para proteger el equipo del estudiante."
+                )
+    return None
+
+
 def ejecutar_python(
     codigo: str,
     *,
@@ -56,6 +86,7 @@ def ejecutar(
     *,
     lenguaje: str = "python",
     timeout_segundos: int = 10,
+    stdin_texto: str | None = None,
 ) -> ResultadoEjecucion:
     """Ejecuta `codigo` en un subproceso aislado con timeout.
 
@@ -63,6 +94,7 @@ def ejecutar(
         codigo: snippet de código fuente
         lenguaje: 'python' | 'javascript' | 'bash' | 'shell'
         timeout_segundos: corte duro
+        stdin_texto: entradas opcionales de texto para stdin / input()
 
     Returns:
         ResultadoEjecucion con stdout, stderr, exit_code y duración.
@@ -92,6 +124,18 @@ def ejecutar(
         )
     nombre_script, ejecutor = cfg
 
+    # Inspección de seguridad AST para Python
+    if lenguaje.lower() in ("python", "py"):
+        alerta_seguridad = _verificar_seguridad_python(codigo)
+        if alerta_seguridad:
+            return ResultadoEjecucion(
+                exit_code=1,
+                stdout="",
+                stderr=alerta_seguridad,
+                timeout=False,
+                duracion_segundos=0.0,
+            )
+
     tmpdir = tempfile.mkdtemp(prefix="explic_sbox_")
     script = os.path.join(tmpdir, nombre_script)
     with open(script, "w", encoding="utf-8") as f:
@@ -110,6 +154,13 @@ def ejecutar(
     # Quitar None
     env_minima = {k: v for k, v in env_minima.items() if v}
 
+    input_str = stdin_texto
+    uso_simulado = False
+    if lenguaje.lower() in ("python", "py") and input_str is None and ("input(" in codigo or "readline(" in codigo):
+        # Valores de prueba didácticos automáticos para responder a input() sin fallar con EOFError
+        input_str = "10\n5\n2\n8\n1\n3\n4\n\n\n\n"
+        uso_simulado = True
+
     timeout_hit = False
     inicio = time.perf_counter()
     try:
@@ -120,9 +171,12 @@ def ejecutar(
             capture_output=True,
             text=True,
             timeout=timeout_segundos,
-            stdin=subprocess.DEVNULL,
+            input=input_str if input_str is not None else None,
+            stdin=subprocess.DEVNULL if input_str is None else None,
         )
         out, err, rc = proc.stdout, proc.stderr, proc.returncode
+        if uso_simulado and rc == 0:
+            out = "💡 [Entorno Educativo]: Se suministraron valores de prueba automáticos (10, 5) para responder a input().\n" + out
     except subprocess.TimeoutExpired as exc:
         timeout_hit = True
         out = exc.stdout.decode("utf-8", errors="replace") if exc.stdout else ""

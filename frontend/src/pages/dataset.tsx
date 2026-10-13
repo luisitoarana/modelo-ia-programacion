@@ -220,7 +220,7 @@ function UnidadCard({
       </div>
 
       {/* Mostrar código si existe */}
-      {abierta && u.codigo_ejemplo && (
+      {abierta && (u.codigo_ejemplo || u.codigo) && (
         <div className="mt-3 rounded-lg bg-code-bg p-2.5">
           <div className="flex items-center gap-1.5 mb-1.5">
             <Code2 size={10} className="text-code-text/60" />
@@ -229,7 +229,7 @@ function UnidadCard({
             </span>
           </div>
           <pre className="overflow-x-auto text-[11px] leading-relaxed text-code-text font-mono whitespace-pre-wrap">
-            {u.codigo_ejemplo}
+            {u.codigo_ejemplo || u.codigo}
           </pre>
         </div>
       )}

@@ -67,3 +67,82 @@ async def buscar(
 ) -> dict[str, object]:
     explorador = ExploradorProyecto()
     return {"resultados": _nodos_a_dict(explorador.buscar(q))}
+
+
+@router.post("/auditoria-ast", summary="Auditar arquitectura completa del proyecto mediante AST")
+async def auditoria_ast(
+    _u: Annotated[Usuario, Depends(obtener_usuario_actual)],
+    con_auditoria_ia: bool = Query(default=True, description="Generar informe de auditoría con IA"),
+    proveedor: str = Query(default="auto", description="Proveedor IA"),
+) -> dict[str, object]:
+    import asyncio
+    from app.services.ast_auditor import escanear_proyecto_ast
+    from app.services.ai_provider import obtener_proveedor, proveedores_disponibles
+    from app.services import motor_pedagogico_service
+
+    datos_ast = escanear_proyecto_ast()
+    informe_ia = ""
+    motor_usado = "Análisis AST Puro"
+
+    if con_auditoria_ia:
+        prompt_sistema = (
+            "Eres un Arquitecto de Software Principal y Auditor de Sistemas Python.\n"
+            "Analiza el siguiente mapa arquitectónico extraído mediante AST de un proyecto Python real.\n"
+            "Genera una auditoría arquitectónica exhaustiva en Markdown estructurada con:\n"
+            "1. 🏛️ Diagnóstico Arquitectónico General (Patrón de diseño, responsabilidades y cohesión).\n"
+            "2. 🔄 Flujo de Componentes y Modularidad (interacción entre módulos).\n"
+            "3. ⚠️ Riesgos Estructurales y Puntos Críticos (análisis de los riesgos estáticos listados).\n"
+            "4. 🚀 Recomendaciones de Refactorización y Escalabilidad."
+        )
+        prompt_usuario = (
+            f"Por favor audita la arquitectura completa del proyecto a partir de este mapa AST:\n\n"
+            f"{datos_ast['sintesis_arquitectura']}\n\n"
+            f"Riesgos estáticos detectados ({datos_ast['total_riesgos']}):\n"
+            f"{datos_ast['riesgos'][:20]}"
+        )
+
+        prov_str = proveedor.lower().strip()
+        # Intentar proveedor en cascada o local
+        orden = [prov_str] if prov_str not in ("auto", "propio") else ["groq", "gemini", "deepseek", "openrouter", "openai"]
+        disponibles = proveedores_disponibles()
+
+        for p_nombre in orden:
+            if p_nombre in disponibles:
+                try:
+                    p = obtener_proveedor(p_nombre)
+                    res = await p.generar(sistema=prompt_sistema, usuario=prompt_usuario, max_tokens=2000, temperatura=0.3)
+                    informe_ia = res.texto
+                    motor_usado = f"Motor Neuronal ({p_nombre.capitalize()})"
+                    break
+                except Exception:
+                    continue
+
+        if not informe_ia and motor_pedagogico_service.esta_disponible():
+            try:
+                res_motor = await asyncio.to_thread(
+                    motor_pedagogico_service.generar_respuesta,
+                    f"{prompt_sistema}\n\n{prompt_usuario}",
+                    max_tokens=1400,
+                    temperatura=0.3,
+                )
+                if res_motor:
+                    informe_ia = res_motor.texto
+                    motor_usado = "Motor Propio Local Offline"
+            except Exception:
+                pass
+
+        if not informe_ia:
+            informe_ia = (
+                f"### Resumen de Auditoría AST\n\n"
+                f"Se auditaron exitosamente **{datos_ast['total_archivos']} archivos** "
+                f"con **{datos_ast['total_lineas']} líneas de código**, identificando "
+                f"**{datos_ast['total_clases']} clases**, **{datos_ast['total_funciones']} funciones** "
+                f"y **{datos_ast['total_riesgos']} riesgos estáticos**.\n\n"
+                f"{datos_ast['sintesis_arquitectura']}"
+            )
+
+    return {
+        **datos_ast,
+        "informe_ia": informe_ia,
+        "motor_usado": motor_usado,
+    }

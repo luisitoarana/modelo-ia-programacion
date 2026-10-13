@@ -10,7 +10,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, MetaData
+from sqlalchemy import DateTime, MetaData, inspect, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -53,14 +53,30 @@ class TimestampMixin:
     )
 
 
-engine = create_async_engine(
-    settings.database_url,
-    echo=settings.database_echo,
-    pool_size=settings.database_pool_size,
-    max_overflow=settings.database_max_overflow,
-    pool_pre_ping=True,
-    future=True,
-)
+def _crear_engine():
+    """Crea el engine con el pool correcto según el dialecto.
+
+    SQLite (aiosqlite) usa `StaticPool` sin pool_size/max_overflow — pasar
+    esos argumentos rompe la conexión. Postgres (asyncpg) sí usa el pool
+    clásico configurado por settings.
+    """
+    url = settings.database_url
+    kwargs: dict = {
+        "echo": settings.database_echo,
+        "future": True,
+    }
+    if url.startswith("sqlite"):
+        # SQLite: connect_args=check_same_thread solo aplica a sync;
+        # aiosqlite lo ignora. No usar pool_size ni pool_pre_ping.
+        pass
+    else:
+        kwargs["pool_size"] = settings.database_pool_size
+        kwargs["max_overflow"] = settings.database_max_overflow
+        kwargs["pool_pre_ping"] = True
+    return create_async_engine(url, **kwargs)
+
+
+engine = _crear_engine()
 
 
 SessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
@@ -96,8 +112,25 @@ async def init_models() -> None:
         dataset,
         evaluacion,
         feedback,
+        intento_aprendizaje,
         usuario,
     )
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(actualizar_esquema_desarrollo)
+
+
+def actualizar_esquema_desarrollo(conn) -> None:
+    """Ampliaciones idempotentes: conserva las filas de instalaciones previas."""
+    inspector = inspect(conn)
+    tablas = set(inspector.get_table_names())
+    if "intentos_aprendizaje" in tablas:
+        columnas = {c["name"] for c in inspector.get_columns("intentos_aprendizaje")}
+        if "pregunta" not in columnas:
+            conn.execute(text("ALTER TABLE intentos_aprendizaje ADD COLUMN pregunta TEXT NULL"))
+    if conn.dialect.name == "mysql" and "mensajes" in tablas:
+        columnas = {c["name"]: c for c in inspector.get_columns("mensajes")}
+        tipo = columnas.get("contenido", {}).get("type")
+        if tipo is not None and tipo.__class__.__name__.upper() == "TEXT":
+            conn.execute(text("ALTER TABLE mensajes MODIFY COLUMN contenido MEDIUMTEXT NOT NULL"))

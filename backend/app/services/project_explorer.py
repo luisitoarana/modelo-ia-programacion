@@ -26,8 +26,9 @@ _EXCLUIR_NOMBRES = {
     ".git", ".github", "node_modules", ".next", "out", "dist", "build",
     "__pycache__", ".venv", "venv", "env", ".mypy_cache", ".ruff_cache",
     ".pytest_cache", ".idea", ".vscode", ".dart_tool", "checkpoints",
+    ".runtime", "logs", "release", "llama_bin", ".claude",
 }
-_EXCLUIR_SUFIJOS = {".pt", ".ckpt", ".pyc", ".pyo", ".so", ".dll", ".bin"}
+_EXCLUIR_SUFIJOS = {".pt", ".ckpt", ".pyc", ".pyo", ".so", ".dll", ".bin", ".db", ".sqlite", ".sqlite3", ".gguf", ".pem", ".key"}
 _EXCLUIR_ARCHIVOS = {".env", ".env.local"}
 
 # Extensiones consideradas "texto legible".
@@ -71,10 +72,14 @@ class ExploradorProyecto:
         # Confinamiento: destino debe estar dentro de la raíz.
         if self.raiz != destino and self.raiz not in destino.parents:
             raise PermissionError("Acceso fuera del proyecto no permitido.")
+        if any(self._excluido(Path(parte)) for parte in destino.relative_to(self.raiz).parts):
+            raise PermissionError("Archivo o carpeta privados no accesibles.")
         return destino
 
     @staticmethod
     def _excluido(p: Path) -> bool:
+        if p.name.startswith('.env') and p.name != '.env.example':
+            return True
         if p.name in _EXCLUIR_NOMBRES or p.name in _EXCLUIR_ARCHIVOS:
             return True
         if p.suffix.lower() in _EXCLUIR_SUFIJOS:

@@ -66,3 +66,24 @@ training/experiments/
 # Outputs temporales
 *.tmp
 *.bak
+
+# Datos privados y artefactos descargados
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+backend/llama_bin/
+release/
+tools/
+cudart.zip
+llama_cuda.zip
+scratch_check_cuda.py
+.claude/
+*.gguf
+*.pt
+*.pth
+*.ckpt
+docs/evidencias/
+backend/.runtime/
+frontend/.runtime/

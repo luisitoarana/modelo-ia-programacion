@@ -1,24 +1,24 @@
 import 'package:flutter/material.dart';
 
-/// Paleta cálida inspirada en las apps de Anthropic (Claude.ai + Claude Code).
+/// Paleta cálida y moderna de alta legibilidad para entornos educativos.
 ///
 /// Decisiones de diseño:
 ///  - Fondos cálidos (off-white / dark warm) en vez de azulados fríos.
-///  - Acento terracota (#D97757) como en Claude.
+///  - Acento terracota (#D97757) distintivo del sistema.
 ///  - Tipografía serif ("Georgia") para titulares, sans-serif del sistema
 ///    para UI y monospace para código.
 ///  - Bordes muy sutiles y radios suaves (12–16 px).
 class AppColors {
-  // ---- Oscuro (cálido) ----
-  static const darkBg = Color(0xFF262624);       // fondo principal
-  static const darkSurface = Color(0xFF30302E);  // tarjetas, sidebar
-  static const darkSurface2 = Color(0xFF3A3A37); // hover / activo
-  static const darkSurface3 = Color(0xFF45453F); // input, code bg
-  static const darkBorder = Color(0xFF3D3D3A);
-  static const darkBorderSoft = Color(0xFF333330);
-  static const darkText = Color(0xFFF5F4ED);
-  static const darkMuted = Color(0xFFB8B5A8);
-  static const darkSubtle = Color(0xFF8A8779);
+  // ---- Oscuro (alta legibilidad y contraste nítido) ----
+  static const darkBg = Color(0xFF18181B);       // fondo principal profundo
+  static const darkSurface = Color(0xFF222226);  // tarjetas, sidebar
+  static const darkSurface2 = Color(0xFF2C2C32); // hover / activo
+  static const darkSurface3 = Color(0xFF383840); // input, code bg
+  static const darkBorder = Color(0xFF383840);
+  static const darkBorderSoft = Color(0xFF2C2C32);
+  static const darkText = Color(0xFFF8FAFC);     // blanco puro de máxima nitidez
+  static const darkMuted = Color(0xFFCBD5E1);    // gris claro legible (sin blur)
+  static const darkSubtle = Color(0xFF94A3B8);   // gris medio legible
 
   // ---- Claro (off-white estilo papel) ----
   static const lightBg = Color(0xFFFAF9F5);
@@ -32,7 +32,7 @@ class AppColors {
   static const lightSubtle = Color(0xFF8E8C7E);
 
   // ---- Acentos ----
-  static const primary = Color(0xFFD97757);        // terracota Anthropic
+  static const primary = Color(0xFFD97757);        // terracota corporativo
   static const primaryHover = Color(0xFFC96644);
   static const primarySoft = Color(0xFFE9A287);
   static const accent = Color(0xFFB85C3E);         // terracota oscuro
@@ -134,18 +134,17 @@ class AppRadius {
 class AppFonts {
   /// Sans serif para UI general. Usa la fuente del SO si no hay Inter.
   static const List<String> sansFallback = <String>[
-    'Inter',
     'Segoe UI',
+    'Inter',
     'SF Pro Display',
     'Helvetica Neue',
     'Roboto',
     'Arial',
   ];
 
-  /// Serif para titulares (estilo papel / Claude).
+  /// Tipografía limpia para titulares.
   static const List<String> serifFallback = <String>[
-    'Tiempos Text',
-    'Source Serif Pro',
+    'Segoe UI',
     'Georgia',
     'Cambria',
     'Times New Roman',
@@ -153,9 +152,9 @@ class AppFonts {
 
   /// Monospace para código.
   static const List<String> monoFallback = <String>[
+    'Consolas',
     'JetBrains Mono',
     'Fira Code',
-    'Consolas',
     'Menlo',
     'Monaco',
     'Courier New',
@@ -209,8 +208,8 @@ class Paletas {
   static const Map<String, PaletaInfo> todas = {
     'terracota': PaletaInfo(
       id: 'terracota',
-      nombre: 'Terracota (Anthropic)',
-      descripcion: 'La paleta original. Cálida, cercana, tipo papel.',
+      nombre: 'Ámbar Cálido',
+      descripcion: 'Diseño editorial cálido, enfocado y de alta concentración.',
       swatches: [Color(0xFFD97757), Color(0xFFFAF9F5), Color(0xFF1F1E1B)],
       light: _PalCol(
         bg: Color(0xFFFAF9F5), surface: Color(0xFFFFFFFF),
@@ -222,13 +221,13 @@ class Paletas {
         codeBg: Color(0xFF1F1E1B), codeText: Color(0xFFF5F4ED),
       ),
       dark: _PalCol(
-        bg: Color(0xFF262624), surface: Color(0xFF30302E),
-        surface2: Color(0xFF3A3A37), surface3: Color(0xFF45453F),
-        border: Color(0xFF3D3D3A), borderSoft: Color(0xFF333330),
-        text: Color(0xFFF5F4ED), muted: Color(0xFFB8B5A8), subtle: Color(0xFF8A8779),
-        primary: Color(0xFFD97757), primaryHover: Color(0xFFE58A6A),
-        accent: Color(0xFFC97052),
-        codeBg: Color(0xFF1B1A18), codeText: Color(0xFFEDEAD9),
+        bg: Color(0xFF18181B), surface: Color(0xFF222226),
+        surface2: Color(0xFF2C2C32), surface3: Color(0xFF383840),
+        border: Color(0xFF383840), borderSoft: Color(0xFF2C2C32),
+        text: Color(0xFFF8FAFC), muted: Color(0xFFCBD5E1), subtle: Color(0xFF94A3B8),
+        primary: Color(0xFFE07A5F), primaryHover: Color(0xFFF48C6A),
+        accent: Color(0xFFD4684A),
+        codeBg: Color(0xFF121214), codeText: Color(0xFFF1F5F9),
       ),
     ),
     'academico': PaletaInfo(
@@ -520,6 +519,22 @@ class AppTheme {
         ),
         thickness: const WidgetStatePropertyAll(6),
         radius: const Radius.circular(8),
+      ),
+
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        width: 380,
+        backgroundColor: surface2,
+        contentTextStyle: TextStyle(
+          color: text,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: borderSoft),
+        ),
+        elevation: 6,
       ),
 
       extensions: <ThemeExtension<dynamic>>[

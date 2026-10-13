@@ -1,40 +1,38 @@
 # Arquitectura del sistema
 
+> Instalación vigente: [README principal](../README.md), [guía del jurado](INSTALACION_JURADO.md) y [validación de entrega](VALIDACION_INSTALACION_2026-10-13.md). Los puertos públicos locales son API 8765 y web 3000; PostgreSQL 16 en Docker permanece privado.
+
 ## Diagrama de capas
 
 ```
 +--------------------------------------------------------+
-| Interfaz Web (Next.js 14) |
-| Páginas, vista dividida código/explicación, layouts |
+| Interfaces de Usuario                                 |
+| - App Desktop (Flutter Windows Release)                |
+| - Interfaz Web (Next.js)                               |
 +--------------------------------------------------------+
- ↓ REST (JSON)
+        ↓ REST (JSON) / HTTP Local (Puerto 8765)
 +--------------------------------------------------------+
-| FastAPI (presentación) |
-| routes/ — auth, ai_orchestrator, dataset, knowledge, |
-| evaluation, research |
+| FastAPI (Capa de Presentación y Ruteo)                 |
+| routes/ — auth, chat, ai_orchestrator, dataset,       |
+| evaluation, research, knowledge                        |
 +--------------------------------------------------------+
- ↓
+        ↓
 +--------------------------------------------------------+
-| Servicios (aplicación / dominio) |
-| explanation_service (orquestador + autocuración) |
-| dataset_service (persistencia + JSONL) |
-| evaluation_service (calificación de actividades) |
-| knowledge_service (base de conocimiento) |
+| Servicios (Aplicación / Dominio Pedagógico)            |
+| - chat_service (orquestador de inferencia y contexto)  |
+| - code_explainer_service (andamiaje didáctico AST)     |
+| - educational_engine (gestión de explicaciones)        |
+| - evaluation_service (calificación de actividades)     |
+| - retrieval_service (RAG pedagógico en base local)     |
 +--------------------------------------------------------+
- ↓
-+--------------------------------------------------------+
-| Proveedores IA | Repositorio (SQLAlchemy 2.0) |
-| ai_provider: | PostgreSQL + JSONB |
-| - GeminiProvider | Modelos: Usuario, Consulta, |
-| - DeepSeekProvider | DatasetEducativo, Actividad, |
-| - obtener_proveedor | Evaluacion |
-+--------------------------------------------------------+
- ↓
-+--------------------------------------------------------+
-| Salidas para investigación |
-| - Dataset JSONL para fine-tuning |
-| - Reportes agregados (research routes) |
-+--------------------------------------------------------+
+        ↓                                ↓
++-----------------------------+ +------------------------+
+| Motor Local de Inferencia   | | Repositorio de Datos   |
+| - Modelo Propio IA          | | PostgreSQL / SQLite    |
+| - Aceleración CUDA GPU      | | Modelos: Usuario,      |
+| - Telemetría de tokens/s    | | Conversacion, Mensaje, |
+| - Parser AST determinista   | | Dataset, Evaluacion    |
++-----------------------------+ +------------------------+
 ```
 
 ## Principios arquitectónicos aplicados
@@ -49,19 +47,15 @@
 
 ## Flujo: solicitud educativa
 
-1. Estudiante envía `POST /ai/generar` con prompt + nivel + proveedor.
-2. `ai_orchestrator.generar_explicacion` crea `Consulta` en estado
- `EN_PROCESO`.
-3. `ExplanationService.explicar`:
- 1. Compone prompt sistema (`prompt_pedagogico`) + prompt usuario.
- 2. Llama al proveedor seleccionado (Gemini / DeepSeek).
- 3. Parsea JSON con `parsear_json_lenient`.
- 4. Valida contra `RespuestaIAEducativa` (Pydantic).
- 5. Si falla → ciclo de auto-curación (hasta `AI_MAX_RETRIES_JSON_REPAIR`).
-4. Si valida, `DatasetService.registrar_desde_respuesta` persiste el JSONB
- completo + campos derivados.
-5. Se actualiza la `Consulta` con tokens, latencia e intentos de reparación.
-6. Se devuelve `ConsultaLeer` al frontend.
+1. Estudiante envía consulta o código con nivel y modo deseado.
+2. `chat_service` o `code_explainer_service` recibe la solicitud.
+3. El servicio orquesta:
+   1. Compone el prompt con andamiaje pedagógico estructurado.
+   2. Ejecuta la inferencia en el motor neuronal propio local con aceleración GPU.
+   3. Registra telemetría de rendimiento (latencia, tokens generados, velocidad tokens/s).
+   4. Valida y estructura la respuesta (desglose paso a paso, complejidades, riesgos).
+4. Se persiste la conversación y la telemetría en la base de datos.
+5. Se retorna la respuesta didáctica a la interfaz de usuario (Flutter / Web).
 
 ## Extensibilidad
 

@@ -25,7 +25,23 @@ class SettingsProvider extends ChangeNotifier {
   bool get ttsHabilitado => _ttsHabilitado;
   double get ttsVelocidad => _ttsVelocidad;
   String? get ttsVoz => _ttsVoz;
-  String get proveedor => _proveedor;
+  String get proveedor => asignacionActiva ? 'propio' : _proveedor;
+  String _modoAcompanamiento = 'con_acompanamiento';
+  String? _modoAsignado;
+  String? _faseEstudio;
+  String get modoAcompanamiento => _modoAsignado ?? _modoAcompanamiento;
+  String? get faseEstudio => _faseEstudio;
+  bool get asignacionActiva => _modoAsignado != null;
+  bool get esConAcompanamiento => modoAcompanamiento == 'con_acompanamiento';
+  bool get esSinAcompanamiento => modoAcompanamiento == 'sin_acompanamiento';
+  bool get esBloqueadoPostTest => modoAcompanamiento == 'bloqueado_post_test';
+
+  String _nivelModulo = 'principiante';
+  String? _usuarioActivoId;
+  String get nivelModulo => _nivelModulo;
+  bool get esModuloPrincipiante => _nivelModulo == 'principiante';
+  bool get esModuloIntermedio => _nivelModulo == 'intermedio';
+  bool get esModuloAvanzado => _nivelModulo == 'avanzado';
 
   static const _kIdiomaKey = 'explicador.idioma';
   static const _kApiUrlKey = 'explicador.api_url';
@@ -34,6 +50,8 @@ class SettingsProvider extends ChangeNotifier {
   static const _kTtsVelKey = 'explicador.tts_vel';
   static const _kTtsVozKey = 'explicador.tts_voz';
   static const _kProveedorKey = 'explicador.proveedor';
+  static const _kAcompanamientoKey = 'explicador.modo_acompanamiento';
+  static const _kNivelModuloKey = 'explicador.nivel_modulo';
 
   Future<void> cargar() async {
     final prefs = await SharedPreferences.getInstance();
@@ -44,11 +62,53 @@ class SettingsProvider extends ChangeNotifier {
     _ttsVelocidad = prefs.getDouble(_kTtsVelKey) ?? 0.5;
     _ttsVoz = prefs.getString(_kTtsVozKey);
     _proveedor = prefs.getString(_kProveedorKey) ?? 'auto';
+    _modoAcompanamiento = prefs.getString(_kAcompanamientoKey) ?? 'con_acompanamiento';
+    _nivelModulo = _normalizarModulo(prefs.getString(_kNivelModuloKey));
     AppConfig.setRuntimeApiUrl(_apiUrlPersonalizada);
     notifyListeners();
   }
 
+  Future<void> setModoAcompanamiento(String v) async {
+    if (asignacionActiva) return;
+    _modoAcompanamiento = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kAcompanamientoKey, v);
+  }
+
+  void setAsignacionEstudio(Map<String, dynamic> datos) {
+    _modoAsignado = datos['asignado'] == true
+        ? datos['modo_efectivo'] as String?
+        : null;
+    _faseEstudio = datos['fase'] as String?;
+    notifyListeners();
+  }
+
+  Future<void> setNivelModulo(String v) async {
+    _nivelModulo = _normalizarModulo(v);
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _usuarioActivoId == null ? _kNivelModuloKey : '$_kNivelModuloKey.$_usuarioActivoId',
+      _nivelModulo,
+    );
+  }
+
+  Future<void> activarPerfil(String usuarioId) async {
+    _usuarioActivoId = usuarioId;
+    final prefs = await SharedPreferences.getInstance();
+    _nivelModulo = _normalizarModulo(prefs.getString('$_kNivelModuloKey.$usuarioId'));
+    notifyListeners();
+  }
+
+  static String _normalizarModulo(String? valor) => switch (valor) {
+    'modulo_2' || 'intermedio' => 'intermedio',
+    'modulo_3' || 'avanzado' => 'avanzado',
+    _ => 'principiante',
+  };
+
   Future<void> setProveedor(String id) async {
+    if (asignacionActiva) return;
     _proveedor = id;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
@@ -193,6 +253,33 @@ class AuthProvider extends ChangeNotifier {
       return false;
     } catch (e) {
       _error = 'Error inesperado: $e';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> registrarEstudiante({
+    required String nombre,
+    required String email,
+    required String password,
+    String? nivelAcademico,
+  }) async {
+    _error = null;
+    notifyListeners();
+    try {
+      await api.registrarEstudiante(
+        nombre: nombre,
+        email: email,
+        password: password,
+        nivelAcademico: nivelAcademico,
+      );
+      return login(email, password);
+    } on ApiException catch (e) {
+      _error = e.mensaje;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _error = 'No se pudo crear la cuenta: $e';
       notifyListeners();
       return false;
     }
@@ -344,13 +431,12 @@ class ChatProvider extends ChangeNotifier {
     required String contexto,
     String idioma = 'es',
     bool buscarWeb = false,
+    String proveedor = 'auto',
+    String? modoAcompanamiento,
+    String? nivelModulo,
   }) async {
     if (texto.trim().isEmpty || enviando) return;
 
-    // Busca conversación cuyo título coincide exacto o por prefijo.
-    // Esto cubre dos escenarios:
-    //   1. Contexto pasado por el caller es exactamente el título existente.
-    //   2. El caller pasa "📁 src" y existe "📁 src · 3 archivos" → reusa.
     ConversacionResumen? existente;
     for (final c in conversaciones) {
       if (c.titulo == contexto || c.titulo.startsWith('$contexto · ')) {
@@ -361,7 +447,14 @@ class ChatProvider extends ChangeNotifier {
 
     if (existente != null) {
       await seleccionar(existente.id);
-      await enviar(texto, idioma: idioma, buscarWeb: buscarWeb);
+      await enviar(
+        texto,
+        idioma: idioma,
+        buscarWeb: buscarWeb,
+        proveedor: proveedor,
+        modoAcompanamiento: modoAcompanamiento,
+        nivelModulo: nivelModulo,
+      );
       return;
     }
 
@@ -370,7 +463,14 @@ class ChatProvider extends ChangeNotifier {
       activaId = nuevoId;
       mensajes = [];
       notifyListeners();
-      await enviar(texto, idioma: idioma, buscarWeb: buscarWeb);
+      await enviar(
+        texto,
+        idioma: idioma,
+        buscarWeb: buscarWeb,
+        proveedor: proveedor,
+        modoAcompanamiento: modoAcompanamiento,
+        nivelModulo: nivelModulo,
+      );
     } on ApiException catch (e) {
       mensajes = [
         ...mensajes,
@@ -385,6 +485,8 @@ class ChatProvider extends ChangeNotifier {
     String idioma = 'es',
     bool buscarWeb = false,
     String proveedor = 'auto',
+    String? modoAcompanamiento,
+    String? nivelModulo,
   }) async {
     if (texto.trim().isEmpty || enviando) return;
     enviando = true;
@@ -401,6 +503,8 @@ class ChatProvider extends ChangeNotifier {
               idioma: idioma,
               buscarWeb: buscarWeb,
               proveedor: proveedor,
+              modoAcompanamiento: modoAcompanamiento,
+              nivelModulo: nivelModulo,
             )
           : await api.enviarMensaje(
               activaId!,
@@ -408,6 +512,8 @@ class ChatProvider extends ChangeNotifier {
               idioma: idioma,
               buscarWeb: buscarWeb,
               proveedor: proveedor,
+              modoAcompanamiento: modoAcompanamiento,
+              nivelModulo: nivelModulo,
             );
       activaId = resp.conversacionId;
       mensajes = [

@@ -402,7 +402,9 @@ class GPTEducativoV2(nn.Module):
     def generar(self, idx: torch.Tensor, max_new_tokens: int,
                 temperatura: float = 1.0,
                 top_k: int | None = None,
-                top_p: float | None = None) -> torch.Tensor:
+                top_p: float | None = None,
+                eos_token: int | None = None,
+                repetition_penalty: float = 1.0) -> torch.Tensor:
         """Genera autoregresivamente tokens nuevos."""
         for _ in range(max_new_tokens):
             # Si la secuencia crece más allá del block_size, cortamos
@@ -410,7 +412,19 @@ class GPTEducativoV2(nn.Module):
             idx_cond = idx if idx.size(1) <= self.cfg.block_size \
                 else idx[:, -self.cfg.block_size:]
             logits, _ = self(idx_cond)
-            logits = logits[:, -1, :] / max(temperatura, 1e-6)
+            logits = logits[:, -1, :]
+
+            # Penalización de repetición para evitar bucles de alucinación
+            if repetition_penalty != 1.0 and idx.size(1) > 0:
+                tokens_previos = torch.unique(idx[0])
+                for t in tokens_previos:
+                    val = logits[0, t]
+                    if val > 0:
+                        logits[0, t] = val / repetition_penalty
+                    else:
+                        logits[0, t] = val * repetition_penalty
+
+            logits = logits / max(temperatura, 1e-6)
 
             if top_k is not None:
                 logits = self._filtrar_top_k(logits, top_k)
@@ -420,6 +434,8 @@ class GPTEducativoV2(nn.Module):
             probs = F.softmax(logits, dim=-1)
             sig = torch.multinomial(probs, num_samples=1)
             idx = torch.cat([idx, sig], dim=1)
+            if eos_token is not None and sig.item() == eos_token:
+                break
         return idx
 
     @staticmethod

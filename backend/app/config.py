@@ -7,6 +7,7 @@ de la aplicación. Centraliza credenciales de IA, base de datos y JWT.
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, PostgresDsn, field_validator
@@ -17,7 +18,7 @@ class Settings(BaseSettings):
     """Configuración global del sistema. Inmutable tras carga."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(Path(__file__).resolve().parents[2] / ".env", Path(__file__).resolve().parents[1] / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -75,20 +76,20 @@ class Settings(BaseSettings):
     # Cuando model_enabled=True y existe un checkpoint, el sistema responde con
     # el MODELO PROPIO (Usuario → Modelo propio → Respuesta). Las APIs quedan
     # restringidas a la generación de datos de entrenamiento.
-    model_enabled: bool = Field(default=False)
+    model_enabled: bool = Field(default=True)
     model_checkpoint_path: str = Field(
-        default="training/checkpoints/exp01_best.pt"
+        default="training/checkpoints/C_350m_Final/checkpoint_ultimo.pt"
     )
     model_tokenizer_path: str = Field(default="")
     model_device: str = Field(default="auto")
-    model_max_tokens: int = Field(default=220)
-    model_temperature: float = Field(default=0.8)
+    model_max_tokens: int = Field(default=380)
+    model_temperature: float = Field(default=0.7)
     model_top_k: int = Field(default=40)
 
     # ----- Explorador de proyecto (capacidad de acceso a archivos) -----
     # Raíz que el sistema puede recorrer/leer (solo lectura). En Docker se
     # monta el proyecto en /proyecto.
-    proyecto_root: str = Field(default="/proyecto")
+    proyecto_root: str = Field(default=str(Path(__file__).resolve().parents[2]))
 
     # ----- CORS -----
     cors_origins: str = Field(default="http://localhost:3000,http://127.0.0.1:3000")
@@ -103,6 +104,13 @@ class Settings(BaseSettings):
         if len(v) < 32:
             raise ValueError("secret_key debe tener al menos 32 caracteres")
         return v
+
+    def model_post_init(self, __context: object) -> None:
+        if self.is_production and (
+            self.secret_key.startswith(("cambia-", "REEMPLAZAR"))
+            or self.admin_password in ("admin12345", "REEMPLAZAR_POR_UNA_CLAVE_UNICA")
+        ):
+            raise ValueError("Produccion requiere SECRET_KEY y ADMIN_PASSWORD propios y seguros")
 
     @property
     def cors_origins_list(self) -> list[str]:

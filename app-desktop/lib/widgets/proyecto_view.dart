@@ -1,4 +1,4 @@
-import 'package:file_picker/file_picker.dart';
+import '../services/dialogos_nativos.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 import '../providers.dart';
 import '../services/fs_local.dart';
 import '../theme.dart';
-import 'syntax_highlighter.dart';
+import 'code/divisores.dart';
 
 class _Item {
   final String nombre;
@@ -51,6 +51,9 @@ class _ProyectoViewState extends State<ProyectoView> {
   final TextEditingController _editCtrl = TextEditingController();
   bool _guardando = false;
 
+  double _anchoExplorador = 280.0;
+  double _altoExplicacion = 250.0;
+
   @override
   void dispose() {
     _editCtrl.dispose();
@@ -85,7 +88,31 @@ class _ProyectoViewState extends State<ProyectoView> {
     }
   }
 
+  static const Set<String> _extensionesBinarias = {
+    'exe', 'dll', 'so', 'dylib', 'bin', 'gguf', 'iso', 'img',
+    'zip', 'tar', 'gz', 'bz2', '7z', 'rar',
+    'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp',
+    'mp4', 'mkv', 'avi', 'mov', 'mp3', 'wav', 'flac',
+    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+    'db', 'sqlite', 'sqlite3', 'pyc', 'class', 'o', 'obj',
+  };
+
   Future<void> _abrirArchivo(_Item it) async {
+    if (it.esCarpeta) return;
+
+    final ext = it.nombre.contains('.') ? it.nombre.split('.').last.toLowerCase() : '';
+    if (_extensionesBinarias.contains(ext)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"${it.nombre}" es un archivo binario y no se puede abrir como texto.'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
     setState(() {
       _archivoNombre = null;
       _explicacion = null;
@@ -93,17 +120,24 @@ class _ProyectoViewState extends State<ProyectoView> {
     });
     try {
       final contenido = await leerLocal(it.ruta);
+      if (!mounted) return;
       _editCtrl.text = contenido;
       setState(() {
         _archivoNombre = it.ruta;
         _archivoLenguaje = _detectarLenguaje(it.nombre);
         _archivoContenido = contenido;
       });
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo abrir el archivo: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _abrirCarpeta() async {
-    final dir = await FilePicker.platform.getDirectoryPath();
+    final dir = await DialogosNativos.seleccionarCarpeta(titulo: 'Seleccionar carpeta de tu PC');
     if (dir == null) return;
     setState(() => _raiz = dir);
     await _cargar(dir);
@@ -127,7 +161,8 @@ class _ProyectoViewState extends State<ProyectoView> {
   }
 
   Future<void> _explicar() async {
-    if (_archivoNombre == null) return;
+    if (_archivoNombre == null || _explicando) return;
+    final archivoConsultado = _archivoNombre!;
     setState(() {
       _explicando = true;
       _explicacion = null;
@@ -143,35 +178,92 @@ class _ProyectoViewState extends State<ProyectoView> {
     final carpetaPadre = partes.length >= 2 ? partes[partes.length - 2] : 'raíz';
     final contexto = '📁 $carpetaPadre';
 
-    // El header del prompt anuncia explícitamente qué archivo se está
-    // discutiendo — necesario porque ahora varios archivos comparten chat
-    // y el modelo debe saber de cuál hablamos en cada turno.
-    final prompt = '''📄 **$nombreCorto** (`$_archivoNombre`)
+    final contenidoSeguro = _modoEditar ? _editCtrl.text : _archivoContenido;
 
-Eres mi profesor de programación. Voy a darte un archivo de mi proyecto y necesito que me lo expliques al detalle, como si lo estuviéramos viendo juntos en clase.
+    final extension = nombreCorto.contains('.')
+        ? nombreCorto.split('.').last.toLowerCase()
+        : '';
+    final esMarkdown = extension == 'md' ||
+        extension == 'txt' ||
+        extension == 'rst' ||
+        extension == 'log';
+    final esDatos = extension == 'json' ||
+        extension == 'yaml' ||
+        extension == 'yml' ||
+        extension == 'toml' ||
+        extension == 'env' ||
+        extension == 'xml';
+    final esWeb = extension == 'html' ||
+        extension == 'htm' ||
+        extension == 'css' ||
+        extension == 'svg';
 
-Usa esta estructura exacta (con encabezados ## en orden):
+    final String prompt;
+    if (esMarkdown) {
+      prompt = '''📄 **Documento Técnico:** $nombreCorto (`$_archivoNombre`)
 
-1. ## Qué hace este archivo (visión general clara)
-2. ## Rol dentro del proyecto (cómo encaja en el conjunto)
-3. ## Frameworks y librerías usadas (cada import, qué resuelve y por qué se eligió)
-4. ## Estructura interna (clases, funciones, secciones)
-5. ## Línea por línea de las partes no triviales (con comentarios pedagógicos)
-6. ## Conceptos clave (sintácticos, lógicos, algorítmicos)
-7. ## Decisiones de diseño y alternativas (por qué esto y no otra cosa)
-8. ## Errores comunes que un estudiante cometería
-9. ## Para profundizar (2 ejercicios o preguntas abiertas)
+Analiza y resume pedagógicamente este documento en español:
+1. 🎯 **Propósito y Tema Central**: Explica en 2 o 3 oraciones claras de qué trata este documento, qué sistema documenta y cuál es su objetivo.
+2. 📑 **Contenido y Secciones Clave**: Resume brevemente los conceptos, especificaciones o puntos principales explicados en el texto.
+3. 💡 **Puntos de Interés**: Aspectos clave para quien consulte esta documentación.
 
-Reglas:
-- Sé concreto. Cita literalmente fragmentos del archivo entre backticks.
-- No inventes APIs que no aparecen en el archivo.
-- Si algo depende de otros archivos del proyecto, dilo.
+REGLAS ABSOLUTAS:
+- Responde 100% en español.
+- Esto es un documento de texto/Markdown, NO es código ejecutable. NO inventes funciones, clases ni código Python que no existen.
+- Sé conciso, directo y pedagógico.
 
-ARCHIVO: $_archivoNombre
-
-```$_archivoLenguaje
-$_archivoContenido
+CONTENIDO REAL:
+```markdown
+$contenidoSeguro
 ```''';
+    } else if (esDatos) {
+      prompt = '''📊 **Estructura de Datos / Configuración:** $nombreCorto (`$_archivoNombre`)
+
+Analiza este archivo estructurado ($extension.toUpperCase()) en español:
+1. 🎯 **Propósito**: Para qué sirve este archivo y qué configuración o entidad modela en el sistema.
+2. 🔑 **Campos y Claves Principales**: Qué datos, propiedades o listas almacena y qué representan.
+3. ⚙️ **Uso Práctico**: Cómo influyen estos valores en la aplicación.
+
+REGLAS ABSOLUTAS:
+- Responde 100% en español.
+- Es un archivo de configuración/datos ($extension), NO un script con funciones. Describe el modelo de datos real.
+
+CONTENIDO:
+```$extension
+$contenidoSeguro
+```''';
+    } else if (esWeb) {
+      prompt = '''🌐 **Vista Web / Estilo:** $nombreCorto (`$_archivoNombre`)
+
+Analiza este archivo de interfaz web en español:
+1. 🎯 **Propósito**: Qué vista o diseño visual define en la aplicación.
+2. 🧩 **Estructura**: Elementos, contenedores o estilos principales.
+3. 🎨 **Buenas Prácticas**: Semántica y organización.
+
+REGLAS:
+- Responde 100% en español, conciso y directo.
+
+CONTENIDO:
+```$extension
+$contenidoSeguro
+```''';
+    } else {
+      prompt = '''💻 **Código Fuente:** $nombreCorto (`$_archivoNombre`)
+
+Explica de forma directa, didáctica y clara este archivo de programación ($extension):
+1. 🎯 **Propósito General**: Qué problema resuelve este código y cuál es su objetivo principal (en 2 o 3 oraciones claras).
+2. 🧩 **Lógica y Componentes Clave**: Funciones o clases principales y cómo se procesan los datos.
+3. 🛡️ **Puntos Críticos**: Manejo de excepciones, casos límite o sugerencias de buenas prácticas.
+
+REGLAS:
+- Responde 100% en español pedagógico, conciso y al grano.
+- Explica únicamente lo que este código hace realmente.
+
+CÓDIGO:
+```$_archivoLenguaje
+$contenidoSeguro
+```''';
+    }
 
     try {
       // Si ya hay conversaciones cargadas, busca una para este archivo.
@@ -184,13 +276,20 @@ $_archivoContenido
         contexto: contexto,
         idioma: settings.idioma,
         buscarWeb: settings.buscarWeb,
+        proveedor: settings.proveedor,
+        modoAcompanamiento: settings.modoAcompanamiento,
+        nivelModulo: settings.nivelModulo,
       );
       // Tomamos la última respuesta del asistente para mostrar en panel.
       final ultima = chat.mensajes.reversed
           .firstWhere((m) => !m.esUsuario, orElse: () => chat.mensajes.last);
-      setState(() => _explicacion = ultima.contenido);
+      if (mounted && _archivoNombre == archivoConsultado) {
+        setState(() => _explicacion = ultima.contenido);
+      }
     } catch (e) {
-      setState(() => _explicacion = '### Error\n\n$e');
+      if (mounted && _archivoNombre == archivoConsultado) {
+        setState(() => _explicacion = '### Error\n\n$e');
+      }
     } finally {
       if (mounted) setState(() => _explicando = false);
     }
@@ -244,8 +343,15 @@ $_archivoContenido
                   : Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        SizedBox(width: 280, child: _panelLista(p)),
-                        const SizedBox(width: 12),
+                        SizedBox(width: _anchoExplorador, child: _panelLista(p)),
+                        DivisorVertical(
+                          onDrag: (delta) {
+                            setState(() {
+                              _anchoExplorador =
+                                  (_anchoExplorador + delta).clamp(180.0, 520.0);
+                            });
+                          },
+                        ),
                         Expanded(child: _panelVisor(p)),
                       ],
                     ),
@@ -549,8 +655,20 @@ $_archivoContenido
           ),
         ),
         if (_explicacion != null) ...[
-          const SizedBox(height: 10),
-          _panelExplicacion(p),
+          const SizedBox(height: 4),
+          DivisorHorizontal(
+            onDrag: (delta) {
+              setState(() {
+                _altoExplicacion =
+                    (_altoExplicacion - delta).clamp(120.0, 550.0);
+              });
+            },
+          ),
+          const SizedBox(height: 4),
+          SizedBox(
+            height: _altoExplicacion,
+            child: _panelExplicacion(p),
+          ),
         ],
       ],
     );
@@ -646,89 +764,71 @@ $_archivoContenido
   }
 
   Widget _vistaCodigo(AppPalette p) {
-    if (_modoEditar) {
-      // Modo edición: TextField plano (sin highlighting, prioridad: editar bien)
-      return Container(
-        color: p.codeBg,
-        padding: const EdgeInsets.all(14),
-        child: TextField(
-          controller: _editCtrl,
-          maxLines: null,
-          expands: true,
-          textAlignVertical: TextAlignVertical.top,
-          style: TextStyle(
-            fontFamily: AppFonts.monoFallback.first,
-            fontFamilyFallback: AppFonts.monoFallback,
-            fontSize: 12.5,
-            height: 1.55,
-            color: p.codeText,
-          ),
-          decoration: const InputDecoration(
-            border: InputBorder.none,
-            isCollapsed: true,
-          ),
-        ),
-      );
-    }
-    // Modo vista: SelectableText con syntax highlighting + números de línea.
     final lineas = _archivoContenido.split('\n');
     return Container(
       color: p.codeBg,
-      child: Scrollbar(
-        thumbVisibility: true,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Números de línea
-              Padding(
-                padding: const EdgeInsets.only(left: 12, right: 6, top: 0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    for (var i = 0; i < lineas.length; i++)
-                      Text(
-                        '${i + 1}',
-                        style: TextStyle(
-                          fontFamily: AppFonts.monoFallback.first,
-                          fontFamilyFallback: AppFonts.monoFallback,
-                          fontSize: 12.5,
-                          height: 1.55,
-                          color: p.codeText.withValues(alpha: 0.35),
-                        ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Números de línea
+          Container(
+            width: 48,
+            padding: const EdgeInsets.only(top: 14, right: 10),
+            decoration: BoxDecoration(
+              color: p.codeBg,
+              border: Border(right: BorderSide(color: p.codeText.withValues(alpha: 0.1))),
+            ),
+            child: SingleChildScrollView(
+              physics: const NeverScrollableScrollPhysics(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (var i = 0; i < lineas.length; i++)
+                    Text(
+                      '${i + 1}',
+                      style: TextStyle(
+                        fontFamily: AppFonts.monoFallback.first,
+                        fontFamilyFallback: AppFonts.monoFallback,
+                        fontSize: 12.5,
+                        height: 1.55,
+                        color: p.codeText.withValues(alpha: 0.35),
                       ),
-                  ],
-                ),
-              ),
-              Container(
-                width: 1,
-                margin: const EdgeInsets.only(top: 0),
-                color: p.codeText.withValues(alpha: 0.1),
-              ),
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 0),
-                    child: HighlightedCode(
-                      code: _archivoContenido,
-                      lenguaje: _archivoLenguaje,
                     ),
-                  ),
+                ],
+              ),
+            ),
+          ),
+          // Visor y editor nativo (totalmente a prueba de cuelgues al seleccionar texto)
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: TextField(
+                controller: _editCtrl,
+                readOnly: !_modoEditar,
+                maxLines: null,
+                expands: true,
+                textAlignVertical: TextAlignVertical.top,
+                style: TextStyle(
+                  fontFamily: AppFonts.monoFallback.first,
+                  fontFamilyFallback: AppFonts.monoFallback,
+                  fontSize: 12.5,
+                  height: 1.55,
+                  color: p.codeText,
+                ),
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  isCollapsed: true,
                 ),
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 
   Widget _panelExplicacion(AppPalette p) {
     return Container(
-      constraints: const BoxConstraints(maxHeight: 260),
       decoration: BoxDecoration(
         color: p.surface,
         borderRadius: BorderRadius.circular(12),
@@ -753,6 +853,18 @@ $_archivoContenido
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
                     color: p.text,
+                  ),
+                ),
+                const Spacer(),
+                Tooltip(
+                  message: 'Cerrar explicación',
+                  child: InkWell(
+                    onTap: () => setState(() => _explicacion = null),
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(Icons.close_rounded, size: 15, color: p.muted),
+                    ),
                   ),
                 ),
               ],

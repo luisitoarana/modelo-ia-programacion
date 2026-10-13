@@ -5,6 +5,7 @@ import '../config.dart';
 import '../providers.dart';
 import '../theme.dart';
 import '../widgets/ambient_background.dart';
+import '../widgets/brand_logo.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -14,23 +15,46 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final _nombreCtrl = TextEditingController();
+  final _nivelCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
+  final _confirmarCtrl = TextEditingController();
   bool _cargando = false;
+  bool _registrando = false;
+  String? _errorFormulario;
 
   @override
   void dispose() {
+    _nombreCtrl.dispose();
+    _nivelCtrl.dispose();
     _emailCtrl.dispose();
     _passCtrl.dispose();
+    _confirmarCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _entrar() async {
+    if (_cargando) return;
+    if (_registrando &&
+        (_nombreCtrl.text.trim().length < 2 ||
+         _passCtrl.text.length < 8 ||
+         _passCtrl.text != _confirmarCtrl.text)) {
+      setState(() => _errorFormulario =
+          'Escribe tu nombre, una contraseña de al menos 8 caracteres y confírmala.');
+      return;
+    }
+    setState(() => _errorFormulario = null);
     setState(() => _cargando = true);
-    final ok = await context.read<AuthProvider>().login(
-          _emailCtrl.text.trim(),
-          _passCtrl.text,
-        );
+    final auth = context.read<AuthProvider>();
+    final ok = _registrando
+        ? await auth.registrarEstudiante(
+            nombre: _nombreCtrl.text.trim(),
+            email: _emailCtrl.text.trim(),
+            password: _passCtrl.text,
+            nivelAcademico: _nivelCtrl.text.trim(),
+          )
+        : await auth.login(_emailCtrl.text.trim(), _passCtrl.text);
     if (mounted) setState(() => _cargando = false);
     if (ok && mounted) {
       context.read<ChatProvider>().cargarConversaciones();
@@ -104,8 +128,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ],
                             ),
-                            child: const Icon(Icons.auto_awesome,
-                                color: Colors.white, size: 28),
+                            child: const BrandLogo(
+                                size: 30,
+                                color: Colors.white,
+                              ),
                           ),
                         ),
                         const SizedBox(height: 18),
@@ -130,12 +156,23 @@ class _LoginScreenState extends State<LoginScreen> {
                               height: 1.4),
                         ),
                         const SizedBox(height: 28),
+                        if (_registrando) ...[
+                          _campo(p, _nombreCtrl, 'Nombre completo', Icons.person_outline),
+                          const SizedBox(height: 12),
+                          _campo(p, _nivelCtrl, 'Semestre o nivel académico (opcional)', Icons.school_outlined),
+                          const SizedBox(height: 12),
+                        ],
                         _campo(p, _emailCtrl, 'Correo', Icons.mail_outline),
                         const SizedBox(height: 12),
                         _campo(p, _passCtrl, 'Contraseña',
                             Icons.lock_outline,
                             obscure: true),
-                        if (auth.error != null) ...[
+                        if (_registrando) ...[
+                          const SizedBox(height: 12),
+                          _campo(p, _confirmarCtrl, 'Confirmar contraseña',
+                              Icons.lock_outline, obscure: true),
+                        ],
+                        if (auth.error != null || _errorFormulario != null) ...[
                           const SizedBox(height: 14),
                           TweenAnimationBuilder<double>(
                             duration: const Duration(milliseconds: 250),
@@ -166,7 +203,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      auth.error!,
+                                      _errorFormulario ?? auth.error!,
                                       style: const TextStyle(
                                           color: AppColors.danger,
                                           fontSize: 13),
@@ -178,13 +215,26 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ],
                         const SizedBox(height: 22),
-                        _BotonEntrar(
-                          cargando: _cargando,
-                          onTap: _entrar,
+                        if (_registrando)
+                          FilledButton(
+                            onPressed: _cargando ? null : _entrar,
+                            child: Text(_cargando ? 'Creando cuenta…' : 'Crear cuenta de estudiante'),
+                          )
+                        else
+                          _BotonEntrar(cargando: _cargando, onTap: _entrar),
+                        const SizedBox(height: 14),
+                        TextButton(
+                          onPressed: _cargando ? null : () => setState(() {
+                            _registrando = !_registrando;
+                            _errorFormulario = null;
+                          }),
+                          child: Text(_registrando
+                              ? 'Ya tengo cuenta: iniciar sesión'
+                              : '¿No tienes cuenta? Crear usuario aquí'),
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
                         Text(
-                          'Usa tu cuenta del sistema (la misma de la web).',
+                          'Tu cuenta se guarda en el servidor del sistema y sirve también para la web.',
                           textAlign: TextAlign.center,
                           style:
                               TextStyle(color: p.subtle, fontSize: 11.5),

@@ -1,34 +1,43 @@
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
 /// Servicio de Text-to-Speech para leer las respuestas del asistente
 /// cuando el usuario tenga TTS activado.
-///
-/// Diseño:
-///   - Singleton (1 sola instancia en toda la app).
-///   - `speak(texto)` se puede llamar siempre — si TTS no está habilitado,
-///     no hace nada (decisión en el caller).
-///   - Limpia markdown antes de leer (no lee asteriscos, backticks, etc.).
-///   - Si llega un nuevo texto mientras se lee el anterior, cancela y
-///     empieza el nuevo (igual que la web).
 class TtsService {
   TtsService._();
   static final TtsService instance = TtsService._();
 
-  final FlutterTts _tts = FlutterTts();
+  FlutterTts? _tts;
   bool _inicializado = false;
+
+  bool get _soportado {
+    if (kIsWeb) return true;
+    try {
+      return !Platform.isWindows && !Platform.isLinux;
+    } catch (_) {
+      return false;
+    }
+  }
 
   Future<void> _asegurar() async {
     if (_inicializado) return;
+    if (!_soportado) {
+      _inicializado = true;
+      return;
+    }
     try {
-      await _tts.awaitSpeakCompletion(false);
+      _tts = FlutterTts();
+      await _tts?.awaitSpeakCompletion(false);
     } catch (_) {}
     _inicializado = true;
   }
 
   Future<List<Map<String, String>>> voicesDisponibles() async {
     await _asegurar();
+    if (!_soportado || _tts == null) return [];
     try {
-      final raw = await _tts.getVoices;
+      final raw = await _tts?.getVoices;
       if (raw is List) {
         return raw.map((v) {
           final m = (v as Map);
@@ -49,28 +58,29 @@ class TtsService {
     String idioma = 'es-ES',
   }) async {
     await _asegurar();
+    if (!_soportado || _tts == null) return;
     final limpio = _limpiarMarkdown(texto);
     if (limpio.isEmpty) return;
     try {
-      await _tts.stop();
-      await _tts.setLanguage(idioma);
+      await _tts?.stop();
+      await _tts?.setLanguage(idioma);
       // velocidad: 0.0 (lento) a 1.0 (rápido) en flutter_tts.
-      await _tts.setSpeechRate(velocidad.clamp(0.0, 1.0));
+      await _tts?.setSpeechRate(velocidad.clamp(0.0, 1.0));
       if (voz != null && voz.isNotEmpty) {
         try {
-          await _tts.setVoice({'name': voz, 'locale': idioma});
+          await _tts?.setVoice({'name': voz, 'locale': idioma});
         } catch (_) {}
       }
-      await _tts.speak(limpio.length > 1000 ? limpio.substring(0, 1000) : limpio);
+      await _tts?.speak(limpio.length > 1000 ? limpio.substring(0, 1000) : limpio);
     } catch (_) {
       // Silencioso — TTS es "nice to have", no debe romper el chat.
     }
   }
 
   Future<void> stop() async {
-    if (!_inicializado) return;
+    if (!_inicializado || _tts == null) return;
     try {
-      await _tts.stop();
+      await _tts?.stop();
     } catch (_) {}
   }
 

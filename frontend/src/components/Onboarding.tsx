@@ -109,7 +109,6 @@ export default function Onboarding({ forzar = false }: { forzar?: boolean }) {
     }
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [abierto, paso]);
 
   function cerrar() {

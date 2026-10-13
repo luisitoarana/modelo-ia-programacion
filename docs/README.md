@@ -1,5 +1,7 @@
 # Documentación del Proyecto
 
+> Instalación vigente: [README principal](../README.md), [guía del jurado](INSTALACION_JURADO.md) y [validación de entrega](VALIDACION_INSTALACION_2026-10-13.md). Los puertos públicos locales son API 8765 y web 3000; PostgreSQL 16 en Docker permanece privado.
+
 > Este directorio contiene la documentación completa del proyecto.
 > Está organizada en dos niveles: documentos académicos (del proyecto)
 > y documentos técnicos (para implementación y mantenimiento).

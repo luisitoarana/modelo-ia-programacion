@@ -24,7 +24,7 @@ const int _maxBytes = 200000;
 
 const Set<String> _excluir = {
   '.git', 'node_modules', '.next', 'build', '__pycache__', '.venv', 'venv',
-  '.dart_tool', '.idea', '.gradle',
+  '.dart_tool', '.idea', '.gradle', '.gemini', 'dist', 'out',
 };
 
 Future<List<EntradaLocal>> listarLocal(String ruta) async {
@@ -32,22 +32,18 @@ Future<List<EntradaLocal>> listarLocal(String ruta) async {
   if (!await dir.exists()) return const [];
   final entradas = <EntradaLocal>[];
   try {
+    int count = 0;
     await for (final e in dir.list(followLinks: false)) {
       final nombre = e.path.split(Platform.pathSeparator).last;
-      if (_excluir.contains(nombre)) continue;
+      if (_excluir.contains(nombre) || nombre.startsWith('.')) continue;
       final esDir = e is Directory;
-      int tam = 0;
-      if (e is File) {
-        try {
-          tam = await e.length();
-        } catch (_) {}
-      }
       entradas.add(EntradaLocal(
         nombre: nombre,
         ruta: e.path,
         esCarpeta: esDir,
-        tamano: tam,
+        tamano: 0,
       ));
+      if (++count >= 800) break; // Previene lag en carpetas gigantescas
     }
   } catch (_) {
     // permisos u otros errores: devolvemos lo que se haya podido leer
@@ -95,10 +91,18 @@ class ResultadoComando {
 Future<ResultadoComando> ejecutarComandoLocal(String comando, {String? cwd}) async {
   try {
     final res = Platform.isWindows
-        ? await Process.run('cmd', ['/c', comando],
-            workingDirectory: cwd, runInShell: true)
-        : await Process.run('/bin/sh', ['-c', comando],
-            workingDirectory: cwd, runInShell: true);
+        ? await Process.run(
+            'powershell',
+            ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', comando],
+            workingDirectory: cwd,
+            runInShell: true,
+          )
+        : await Process.run(
+            '/bin/bash',
+            ['-c', comando],
+            workingDirectory: cwd,
+            runInShell: true,
+          );
     final out =
         '${res.stdout?.toString() ?? ''}${res.stderr?.toString() ?? ''}';
     return ResultadoComando(out.trimRight(), res.exitCode);

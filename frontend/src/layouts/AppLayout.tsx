@@ -38,7 +38,6 @@ const NAV: { grupo: string; items: NavItem[] }[] = [
       { href: '/', label: 'Asistente', icon: <MessageSquareCode size={18} /> },
       { href: '/panel', label: 'Panel general', icon: <LayoutDashboard size={18} /> },
       { href: '/conocimiento', label: 'Conocimiento', icon: <BookOpen size={18} />, soloInvestigador: true },
-      { href: '/rag', label: 'Base de conocimiento', icon: <Sparkles size={18} /> },
       { href: '/historial', label: 'Historial', icon: <History size={18} />, soloInvestigador: true }
     ]
   },

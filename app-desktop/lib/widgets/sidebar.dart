@@ -11,8 +11,9 @@ import 'confirm_dialog.dart';
 import 'empty_state.dart';
 import 'pulse_dot.dart';
 import 'skeleton.dart';
+import 'brand_logo.dart';
 
-/// Sidebar estilo Claude.ai / Claude Code:
+/// Panel lateral de navegación (Sidebar):
 ///  - Colapsable (mini-rail de 64px o panel completo de 280px).
 ///  - Botón "Nuevo chat" prominente.
 ///  - Búsqueda integrada para filtrar conversaciones.
@@ -99,7 +100,7 @@ class _SidebarState extends State<Sidebar> {
           ),
           _NavItem(
             icon: Icons.edit_note,
-            label: 'Code (editor)',
+            label: 'Editor de Código',
             colapsado: colapsado,
             activo: widget.vista == VistaPrincipal.code,
             onTap: () => widget.onCambiarVista(VistaPrincipal.code),
@@ -118,13 +119,14 @@ class _SidebarState extends State<Sidebar> {
             activo: widget.vista == VistaPrincipal.terminal,
             onTap: () => widget.onCambiarVista(VistaPrincipal.terminal),
           ),
-          _NavItem(
-            icon: Icons.storage_rounded,
-            label: 'Base de conocimiento',
-            colapsado: colapsado,
-            activo: widget.vista == VistaPrincipal.rag,
-            onTap: () => widget.onCambiarVista(VistaPrincipal.rag),
-          ),
+          if (auth.usuario?.esAdmin == true)
+            _NavItem(
+              icon: Icons.admin_panel_settings_outlined,
+              label: 'Administración',
+              colapsado: colapsado,
+              activo: false,
+              onTap: () => showSettings(context, abrirAdministracion: true),
+            ),
 
           if (!colapsado) ...[
             const SizedBox(height: 14),
@@ -145,7 +147,8 @@ class _SidebarState extends State<Sidebar> {
               query: _query,
               // Si NO se cargó nunca y está cargando: skeletons.
               // Si ya se cargó y no hay conversaciones: empty state.
-              cargando: chat.cargandoConversaciones &&
+              cargando:
+                  chat.cargandoConversaciones &&
                   !chat.conversacionesCargadasAlgunaVez,
               onNuevoChat: () {
                 chat.nueva();
@@ -159,7 +162,10 @@ class _SidebarState extends State<Sidebar> {
                 final conv = chat.conversaciones.firstWhere(
                   (c) => c.id == id,
                   orElse: () => ConversacionResumen(
-                      id: id, titulo: 'Conversación', fechaActualizacion: ''),
+                    id: id,
+                    titulo: 'Conversación',
+                    fechaActualizacion: '',
+                  ),
                 );
                 final confirmado = await mostrarConfirmacion(
                   context,
@@ -214,8 +220,8 @@ class _Header extends StatelessWidget {
                   color: p.primary,
                   borderRadius: BorderRadius.circular(9),
                 ),
-                child: const Icon(Icons.auto_awesome,
-                    color: Colors.white, size: 16),
+                alignment: Alignment.center,
+                child: const BrandLogo(size: 18, color: Colors.white),
               ),
             ),
           ),
@@ -234,7 +240,8 @@ class _Header extends StatelessWidget {
               borderRadius: BorderRadius.circular(9),
               boxShadow: p.subtleShadow,
             ),
-            child: const Icon(Icons.auto_awesome, color: Colors.white, size: 16),
+            alignment: Alignment.center,
+            child: const BrandLogo(size: 16, color: Colors.white),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -295,7 +302,8 @@ class _NuevoChatButtonState extends State<_NuevoChatButton> {
             duration: const Duration(milliseconds: 140),
             height: 38,
             padding: EdgeInsets.symmetric(
-                horizontal: widget.colapsado ? 0 : 12),
+              horizontal: widget.colapsado ? 0 : 12,
+            ),
             decoration: BoxDecoration(
               color: bg,
               borderRadius: BorderRadius.circular(10),
@@ -415,7 +423,7 @@ class _Recientes extends StatelessWidget {
     // Mientras carga por primera vez: skeletons con shimmer (mejor UX
     // que un spinner porque insinúa la forma del contenido).
     if (cargando) {
-      return Padding(
+      return SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -424,13 +432,13 @@ class _Recientes extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
               child: Skeleton.text(height: 9, width: 50),
             ),
-            for (int i = 0; i < 5; i++) const SkeletonConversacion(),
+            for (int i = 0; i < 4; i++) const SkeletonConversacion(),
             const SizedBox(height: 12),
             Padding(
               padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
               child: Skeleton.text(height: 9, width: 70),
             ),
-            for (int i = 0; i < 3; i++) const SkeletonConversacion(),
+            for (int i = 0; i < 2; i++) const SkeletonConversacion(),
           ],
         ),
       );
@@ -439,15 +447,15 @@ class _Recientes extends StatelessWidget {
     final filtradas = query.isEmpty
         ? conversaciones
         : conversaciones
-            .where((c) => c.titulo.toLowerCase().contains(query))
-            .toList();
+              .where((c) => c.titulo.toLowerCase().contains(query))
+              .toList();
 
     if (filtradas.isEmpty) {
       // Empty state diferenciado: si buscaba algo concreto, mostramos
       // el mensaje de "sin resultados"; si no había nada en general,
       // mostramos EmptyState con acción para crear el primero.
       if (query.isNotEmpty) {
-        return Padding(
+        return SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
           child: Center(
             child: Column(
@@ -465,14 +473,17 @@ class _Recientes extends StatelessWidget {
           ),
         );
       }
-      return EmptyState(
-        icono: Icons.forum_outlined,
-        titulo: 'Tu primer chat',
-        mensaje: 'Empieza preguntando lo que quieras a tu asistente.',
-        accion: EmptyStateAction(
-          label: 'Nueva conversación',
-          icono: Icons.add,
-          onTap: onNuevoChat,
+      return SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: EmptyState(
+          icono: Icons.forum_outlined,
+          titulo: 'Tu primer chat',
+          mensaje: 'Empieza preguntando lo que quieras a tu asistente.',
+          accion: EmptyStateAction(
+            label: 'Crear chat',
+            icono: Icons.add,
+            onTap: onNuevoChat,
+          ),
         ),
       );
     }
@@ -516,13 +527,15 @@ class _Recientes extends StatelessWidget {
       if (lista.isEmpty) return;
       children.add(_GrupoHeader(etiqueta: etiqueta));
       for (final c in lista) {
-        children.add(_ConversacionTile(
-          id: c.id,
-          titulo: c.titulo,
-          activa: c.id == activaId,
-          onTap: () => onSeleccionar(c.id),
-          onEliminar: () => onEliminar(c.id),
-        ));
+        children.add(
+          _ConversacionTile(
+            id: c.id,
+            titulo: c.titulo,
+            activa: c.id == activaId,
+            onTap: () => onSeleccionar(c.id),
+            onEliminar: () => onEliminar(c.id),
+          ),
+        );
       }
       children.add(const SizedBox(height: 6));
     });
@@ -587,8 +600,10 @@ class _ConversacionTileState extends State<_ConversacionTile> {
     final bg = widget.activa
         ? p.surface2
         : (_dragOver
-            ? p.primary.withValues(alpha: 0.08)
-            : (_hover ? p.surface2.withValues(alpha: 0.55) : Colors.transparent));
+              ? p.primary.withValues(alpha: 0.08)
+              : (_hover
+                    ? p.surface2.withValues(alpha: 0.55)
+                    : Colors.transparent));
 
     final contenido = MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -619,8 +634,9 @@ class _ConversacionTileState extends State<_ConversacionTile> {
                   style: TextStyle(
                     fontSize: 13,
                     color: widget.activa ? p.text : p.muted,
-                    fontWeight:
-                        widget.activa ? FontWeight.w500 : FontWeight.w400,
+                    fontWeight: widget.activa
+                        ? FontWeight.w500
+                        : FontWeight.w400,
                   ),
                 ),
               ),
@@ -632,8 +648,11 @@ class _ConversacionTileState extends State<_ConversacionTile> {
                     borderRadius: BorderRadius.circular(4),
                     child: Padding(
                       padding: const EdgeInsets.all(2),
-                      child: Icon(Icons.delete_outline,
-                          size: 14, color: p.subtle),
+                      child: Icon(
+                        Icons.delete_outline,
+                        size: 14,
+                        color: p.subtle,
+                      ),
                     ),
                   ),
                 ),
@@ -656,7 +675,7 @@ class _ConversacionTileState extends State<_ConversacionTile> {
         setState(() => _dragOver = false);
         context.read<ChatProvider>().reordenar(d.data, widget.id);
       },
-      builder: (_, __, ___) => LongPressDraggable<String>(
+      builder: (_, _, _) => LongPressDraggable<String>(
         data: widget.id,
         delay: const Duration(milliseconds: 200),
         feedback: Material(
@@ -682,9 +701,10 @@ class _ConversacionTileState extends State<_ConversacionTile> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                        fontSize: 13,
-                        color: p.text,
-                        fontWeight: FontWeight.w500),
+                      fontSize: 13,
+                      color: p.text,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               ],
@@ -736,7 +756,9 @@ class _NavItemState extends State<_NavItem> {
       curve: AppMotion.standard,
       width: widget.activo && !widget.colapsado ? 3 : 0,
       height: widget.activo ? 16 : 0,
-      margin: EdgeInsets.only(right: widget.activo && !widget.colapsado ? 8 : 0),
+      margin: EdgeInsets.only(
+        right: widget.activo && !widget.colapsado ? 8 : 0,
+      ),
       decoration: BoxDecoration(
         color: p.primary,
         borderRadius: BorderRadius.circular(99),
@@ -807,7 +829,12 @@ class _NavItemState extends State<_NavItem> {
             highlightColor: Colors.transparent,
             child: widget.colapsado
                 ? contenido
-                : Row(children: [indicador, Expanded(child: contenido)]),
+                : Row(
+                    children: [
+                      indicador,
+                      Expanded(child: contenido),
+                    ],
+                  ),
           ),
         ),
       ),
@@ -993,9 +1020,9 @@ class _UsuarioFooter extends StatelessWidget {
   }
 
   String _rolLabel(String rol) => switch (rol) {
-        'administrador' => 'Administrador',
-        'investigador' => 'Investigador',
-        'estudiante' => 'Estudiante',
-        _ => rol,
-      };
+    'administrador' => 'Administrador',
+    'investigador' => 'Investigador',
+    'estudiante' => 'Estudiante',
+    _ => rol,
+  };
 }

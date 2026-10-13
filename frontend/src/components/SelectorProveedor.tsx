@@ -64,23 +64,26 @@ export default function SelectorProveedor({ value, onChange, compact = false }: 
 
   if (!actual) return null;
 
+  const hayVarios = proveedores.length > 1;
+
   return (
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => setAbierto((v) => !v)}
+        onClick={() => hayVarios && setAbierto((v) => !v)}
         className={cn(
-          'flex items-center gap-1.5 rounded-lg border border-border-soft bg-surface text-xs font-medium hover:bg-surface-2 transition-colors',
+          'flex items-center gap-1.5 rounded-lg border border-border-soft bg-surface text-xs font-semibold transition-colors',
+          hayVarios ? 'hover:bg-surface-2 cursor-pointer' : 'cursor-default',
           compact ? 'px-2 py-1' : 'px-2.5 py-1.5',
         )}
-        title="Cambiar IA que responde"
+        title={actual.descripcion || 'Motor neural de la tesis (100% offline)'}
       >
-        <span className="text-muted">{iconoTipo(actual.tipo)}</span>
+        <span className="text-primary">{iconoTipo(actual.tipo)}</span>
         <span className="text-text">{actual.nombre}</span>
-        <ChevronDown size={11} className="text-muted" />
+        {hayVarios && <ChevronDown size={11} className="text-muted" />}
       </button>
 
-      {abierto && (
+      {abierto && hayVarios && (
         <div className="absolute bottom-full left-0 z-40 mb-2 w-64 rounded-xl border border-border-soft bg-surface p-1 shadow-elevated">
           {proveedores.map((p) => (
             <button

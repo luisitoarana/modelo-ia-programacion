@@ -17,6 +17,10 @@ log = obtener_logger(__name__)
 CLAVES_API = {
     runtime_config.GEMINI_API_KEY: "API key de Google Gemini",
     runtime_config.DEEPSEEK_API_KEY: "API key de DeepSeek",
+    runtime_config.GROQ_API_KEY: "API key de Groq",
+    runtime_config.OPENAI_API_KEY: "API key de OpenAI",
+    runtime_config.ANTHROPIC_API_KEY: "API key de Anthropic",
+    runtime_config.OPENROUTER_API_KEY: "API key de OpenRouter",
 }
 
 

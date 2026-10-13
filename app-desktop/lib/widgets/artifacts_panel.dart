@@ -9,7 +9,7 @@ import '../services/fs_local.dart';
 import '../theme.dart';
 
 /// Un "artifact" es un bloque de código (o texto) extraído de una respuesta
-/// del asistente. Inspirado en los Artifacts de Claude.ai.
+/// del asistente con soporte para renderizado y exportación interactiva.
 class Artifact {
   final String id;
   final String titulo;
@@ -340,7 +340,7 @@ class _CodigoVisor extends StatelessWidget {
     return Container(
       color: p.codeBg,
       child: Scrollbar(
-        thumbVisibility: true,
+        thumbVisibility: false,
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Row(

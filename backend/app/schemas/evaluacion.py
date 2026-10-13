@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class EvaluacionCrear(BaseModel):
     dataset_id: uuid.UUID
-    tipo_actividad: str = Field(min_length=2, max_length=60)
+    tipo_actividad: Literal[
+        "opcion_multiple", "completar_codigo", "traza_logica", "explicacion_libre"
+    ]
     respuesta_estudiante: str = Field(min_length=1)
 
 

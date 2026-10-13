@@ -7,7 +7,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import bcrypt
-from jose import JWTError, jwt
+import jwt
+from jwt import InvalidTokenError as JWTError
 
 from app.config import settings
 

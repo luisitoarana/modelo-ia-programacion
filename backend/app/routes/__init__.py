@@ -5,9 +5,11 @@ from fastapi import APIRouter
 from app.routes import (
     admin,
     agente,
+    aprendizaje,
     ai_orchestrator,
     auth,
     chat,
+    curriculo,
     dataset,
     evaluation,
     feedback,
@@ -25,6 +27,8 @@ api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["Autenticación"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Administración"])
 api_router.include_router(chat.router, prefix="/chat", tags=["Chat"])
+api_router.include_router(curriculo.router, prefix="/curriculo", tags=["Currículo y Aprendizaje"])
+api_router.include_router(aprendizaje.router, prefix="/aprendizaje", tags=["Práctica Guiada"])
 api_router.include_router(ai_orchestrator.router, prefix="/ai", tags=["IA"])
 api_router.include_router(dataset.router, prefix="/dataset", tags=["Dataset"])
 api_router.include_router(knowledge.router, prefix="/knowledge", tags=["Conocimiento"])

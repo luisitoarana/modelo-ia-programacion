@@ -1,9 +1,9 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../../tailwind.config.ts";
+@custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Paleta cálida estilo Anthropic (Claude.ai + Claude Code).
+ * Paleta cálida del Sistema Explicador Python IA.
  *  - Fondos cálidos (off-white / warm dark).
  *  - Acento terracota.
  *  - Tipografía serif para titulares, sans para UI, mono para código.

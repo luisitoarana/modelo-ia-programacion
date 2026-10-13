@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,26 @@ from app.utils.helpers import crear_access_token, hash_password, verificar_passw
 
 
 router = APIRouter()
+
+
+class CambioClave(BaseModel):
+    actual: str
+    nueva: str = Field(min_length=10, max_length=128)
+
+
+@router.put("/clave", summary="Cambiar la contraseña de la cuenta actual")
+async def cambiar_clave(
+    datos: CambioClave,
+    usuario: Annotated[Usuario, Depends(obtener_usuario_actual)],
+    sesion: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, str]:
+    if not verificar_password(datos.actual, usuario.password_hash):
+        raise HTTPException(status_code=400, detail="La contraseña actual es incorrecta.")
+    if datos.actual == datos.nueva:
+        raise HTTPException(status_code=400, detail="La nueva contraseña debe ser diferente.")
+    usuario.password_hash = hash_password(datos.nueva)
+    await sesion.commit()
+    return {"estado": "ok"}
 
 
 @router.post(
@@ -35,12 +56,13 @@ async def registrar(
             status_code=status.HTTP_409_CONFLICT,
             detail="El correo ya está registrado.",
         )
-    # Seguridad: el registro público NO puede crear administradores.
+    # Las condiciones de investigación solo las asigna personal autorizado.
+    # El registro público crea estudiantes; investigadores se aprovisionan aparte.
     rol = RolUsuario(datos.rol)
-    if rol is RolUsuario.ADMINISTRADOR:
+    if rol is not RolUsuario.ESTUDIANTE:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="El rol administrador no puede crearse desde el registro público.",
+            detail="El registro público solo permite cuentas de estudiante.",
         )
     usuario = Usuario(
         nombre=datos.nombre,

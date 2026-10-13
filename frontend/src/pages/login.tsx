@@ -30,7 +30,7 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthShell titulo="Iniciar sesión" subtitulo="Plataforma educativa de Python con IA propia">
+    <AuthShell titulo="Iniciar sesión" subtitulo="Aprendizaje de Python con andamiaje explicativo">
       <form onSubmit={enviar} className="flex flex-col gap-4">
         <Input
           label="Correo"

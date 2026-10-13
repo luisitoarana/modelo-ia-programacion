@@ -1,7 +1,7 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 
 const baseURL =
-  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8765/api/v1';
 
 export const api: AxiosInstance = axios.create({
   baseURL,

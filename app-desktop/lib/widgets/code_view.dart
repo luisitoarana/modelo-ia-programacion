@@ -1,14 +1,23 @@
+import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
+import '../services/dialogos_nativos.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
 
 import '../api.dart';
 import '../providers.dart';
+import '../services/curriculum_catalog.dart';
 import '../theme.dart';
-import 'syntax_highlighter.dart';
+import 'code/code_badges.dart';
+import 'code/code_empty_state.dart';
+import 'code/code_helpers.dart';
+import 'code/code_models.dart';
+import 'code/divisores.dart';
+import 'code/diff_modal.dart';
 import 'terminal_view.dart';
 
 /// Vista "Code" v2 — Editor estilo VS Code / Cursor con:
@@ -45,12 +54,12 @@ class CodeView extends StatefulWidget {
 }
 
 class _CodeViewState extends State<CodeView> {
-  final List<_TabArchivo> _tabs = [];
+  final List<TabArchivo> _tabs = [];
   int _activa = -1;
 
   // Panel inferior (Output / Terminal / Problemas)
-  _PanelInferior _panelActivo = _PanelInferior.output;
-  _ResultadoEjecucion? _output;
+  PanelInferior _panelActivo = PanelInferior.output;
+  ResultadoEjecucion? _output;
   bool _ejecutando = false;
   final List<String> _terminalLog = [];   // historial libre
   final List<String> _problemas = [];      // futuro: linting
@@ -60,24 +69,31 @@ class _CodeViewState extends State<CodeView> {
 
   // Carpeta abierta como "proyecto" (tipo Open Folder de VS Code).
   String? _carpetaRaiz;
-  _NodoCarpeta? _arbol;
+  NodoCarpeta? _arbol;
   bool _cargandoArbol = false;
 
   // GlobalKey para acceder al State de la TerminalView embebida (para
   // sincronizar su CWD con el archivo activo).
   final GlobalKey<State<TerminalView>> _terminalKey = GlobalKey();
 
-  // Panel IA ahora vive como tab del panel inferior (junto a
-  // Output/Terminal/Problemas) — más cerca del editor.
+  // Panel IA Lateral estilo Cursor / Antigravity / GLM (Split View)
+  bool _panelIaLateral = true;
+  double _anchoPanelIa = 370;
+  static const double _minAnchoPanelIa = 270;
+  static const double _maxAnchoPanelIa = 620;
   final TextEditingController _iaCtrl = TextEditingController();
+  final ScrollController _iaScrollCtrl = ScrollController();
+  final FocusNode _iaFocusNode = FocusNode();
   bool _iaCargando = false;
-  String? _iaUltimaRespuesta;
+  final List<MensajeEditorIa> _iaHistorial = [];
+  String? _iaConversacionId;
+  bool _iaCambioPendiente = false;
 
   // ── Tamaños dinámicos de los paneles (redimensionables) ─────────────
-  /// Ancho del panel EXPLORADOR (sidebar derecho).
+  /// Ancho del panel EXPLORADOR (sidebar izquierdo).
   double _anchoExplorador = 260;
-  /// Alto del panel inferior (output/terminal/problemas/IA).
-  double _altoPanelInferior = 240;
+  /// Alto del panel inferior (output/terminal/problemas).
+  double _altoPanelInferior = 220;
   static const double _minAnchoExplorador = 180;
   static const double _maxAnchoExplorador = 500;
   static const double _minAltoPanelInferior = 80;
@@ -97,10 +113,12 @@ class _CodeViewState extends State<CodeView> {
       t.dispose();
     }
     _iaCtrl.dispose();
+    _iaScrollCtrl.dispose();
+    _iaFocusNode.dispose();
     super.dispose();
   }
 
-  _TabArchivo? get _tabActiva =>
+  TabArchivo? get _tabActiva =>
       (_activa >= 0 && _activa < _tabs.length) ? _tabs[_activa] : null;
 
   /// CWD que la terminal embebida debe usar: el directorio del archivo
@@ -116,38 +134,82 @@ class _CodeViewState extends State<CodeView> {
     return _carpetaRaiz;
   }
 
+  static const Set<String> _extensionesBinarias = {
+    'exe', 'dll', 'so', 'dylib', 'bin', 'gguf', 'iso', 'img',
+    'zip', 'tar', 'gz', 'bz2', '7z', 'rar',
+    'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp',
+    'mp4', 'mkv', 'avi', 'mov', 'mp3', 'wav', 'flac',
+    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+    'db', 'sqlite', 'sqlite3', 'pyc', 'class', 'o', 'obj',
+  };
+  static const int _maxTamanoArchivoBytes = 3 * 1024 * 1024; // 3 MB límite seguro
+
   // ────────────────────── Acciones ──────────────────────
 
   Future<void> _abrirArchivos() async {
     final p = AppPalette.of(context);
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const [
-        'py', 'dart', 'js', 'ts', 'tsx', 'jsx', 'json', 'md', 'txt',
-        'java', 'kt', 'rs', 'go', 'c', 'cpp', 'h', 'hpp', 'cs',
-        'rb', 'php', 'sh', 'yaml', 'yml', 'toml', 'html', 'css',
-      ],
-      allowMultiple: true,
+    final rutas = await DialogosNativos.seleccionarArchivos(
+      titulo: 'Abrir archivos en el editor',
+      permitirMultiples: true,
     );
-    if (result == null) return;
-    for (final f in result.files) {
-      if (f.path == null) continue;
-      final i = _tabs.indexWhere((t) => t.ruta == f.path);
+    if (rutas.isEmpty || !mounted) return;
+    for (final ruta in rutas) {
+      final i = _tabs.indexWhere((t) => t.ruta == ruta);
       if (i >= 0) {
         setState(() => _activa = i);
         continue;
       }
-      String contenido = '';
-      try {
-        contenido = await File(f.path!).readAsString();
-      } catch (_) {
+      final nombre = ruta.split(Platform.pathSeparator).last;
+      final ext = nombre.contains('.') ? nombre.split('.').last.toLowerCase() : '';
+      if (_extensionesBinarias.contains(ext)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('"$nombre" es un archivo binario y no se puede abrir como texto.'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
         continue;
       }
-      final lenguaje = _lenguajeDeExtension(f.extension ?? '');
+
+      final file = File(ruta);
+      if (!await file.exists()) continue;
+
+      try {
+        final tam = await file.length();
+        if (tam > _maxTamanoArchivoBytes) {
+          if (mounted) {
+            final tamMb = (tam / (1024 * 1024)).toStringAsFixed(1);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('"$nombre" ($tamMb MB) excede el límite de 3 MB para el editor.'),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+          continue;
+        }
+      } catch (_) {}
+
+      String contenido = '';
+      try {
+        final bytes = await file.readAsBytes();
+        contenido = utf8.decode(bytes, allowMalformed: true);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No se pudo leer $nombre: $e')),
+          );
+        }
+        continue;
+      }
+      if (!mounted) return;
+      final lenguaje = lenguajeDeExtension(ext);
       setState(() {
-        _tabs.add(_TabArchivo(
-          nombre: f.name,
-          ruta: f.path,
+        _tabs.add(TabArchivo(
+          nombre: nombre,
+          ruta: ruta,
           contenido: contenido,
           original: contenido,
           lenguaje: lenguaje,
@@ -169,9 +231,10 @@ class _CodeViewState extends State<CodeView> {
       botonOk: 'Crear',
     );
     if (nombre == null || nombre.trim().isEmpty) return;
+    if (!mounted) return;
     final nombreLimpio = nombre.trim();
     final ext = nombreLimpio.contains('.') ? nombreLimpio.split('.').last : '';
-    final lenguaje = _lenguajeDeExtension(ext);
+    final lenguaje = lenguajeDeExtension(ext);
     final p = AppPalette.of(context);
 
     // Si hay carpeta destino → crear archivo físico en disco.
@@ -202,7 +265,7 @@ class _CodeViewState extends State<CodeView> {
     }
 
     setState(() {
-      _tabs.add(_TabArchivo(
+      _tabs.add(TabArchivo(
         nombre: nombreLimpio,
         ruta: rutaFinal,
         contenido: '',
@@ -216,15 +279,21 @@ class _CodeViewState extends State<CodeView> {
 
   /// Abre una carpeta como "proyecto" — el sidebar muestra su árbol.
   Future<void> _abrirCarpeta() async {
-    final ruta = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Abrir carpeta como proyecto',
-    );
-    if (ruta == null) return;
-    setState(() {
-      _carpetaRaiz = ruta;
-      _cargandoArbol = true;
-    });
-    await _refrescarArbol();
+    try {
+      final ruta = await DialogosNativos.seleccionarCarpeta(
+        titulo: 'Abrir carpeta como proyecto',
+      );
+      if (ruta == null) return;
+      if (!mounted) return;
+      setState(() {
+        _carpetaRaiz = ruta;
+        _cargandoArbol = true;
+        _iaHistorial.clear();
+        _iaConversacionId = null;
+        _iaCambioPendiente = false;
+      });
+      await _refrescarArbol();
+    } catch (_) {}
   }
 
   Future<void> _refrescarArbol() async {
@@ -242,24 +311,24 @@ class _CodeViewState extends State<CodeView> {
   }
 
   /// Construye el árbol recursivo (lazy: primer nivel + sub al expandir).
-  Future<_NodoCarpeta> _construirArbol(String ruta, {int profundidad = 1}) async {
+  Future<NodoCarpeta> _construirArbol(String ruta, {int profundidad = 1}) async {
     final dir = Directory(ruta);
-    final hijos = <_NodoArchivo>[];
+    final hijos = <NodoArchivo>[];
     try {
       await for (final entidad in dir.list(followLinks: false)) {
         final nombre = entidad.path.split(Platform.pathSeparator).last;
         // Skip carpetas ocultas / node_modules / __pycache__ etc.
         if (_ignorar(nombre)) continue;
         if (entidad is Directory) {
-          hijos.add(_NodoArchivo.carpeta(
+          hijos.add(NodoArchivo.carpeta(
             nombre: nombre,
             ruta: entidad.path,
           ));
         } else if (entidad is File) {
-          hijos.add(_NodoArchivo.archivo(
+          hijos.add(NodoArchivo.archivo(
             nombre: nombre,
             ruta: entidad.path,
-            lenguaje: _lenguajeDeExtension(
+            lenguaje: lenguajeDeExtension(
               nombre.contains('.') ? nombre.split('.').last : '',
             ),
           ));
@@ -271,7 +340,7 @@ class _CodeViewState extends State<CodeView> {
       if (a.esCarpeta != b.esCarpeta) return a.esCarpeta ? -1 : 1;
       return a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase());
     });
-    return _NodoCarpeta(
+    return NodoCarpeta(
       nombre: ruta.split(Platform.pathSeparator).last,
       ruta: ruta,
       hijos: hijos,
@@ -283,12 +352,12 @@ class _CodeViewState extends State<CodeView> {
     return const {
       'node_modules', '__pycache__', 'venv', '.venv', 'env',
       'build', 'dist', '.dart_tool', '.idea', '.vscode',
-      'target', 'bin', 'obj', '.next',
+      'target', 'bin', 'obj', '.next', 'models',
     }.contains(nombre);
   }
 
   /// Abre un archivo del árbol como tab.
-  Future<void> _abrirDesdeArbol(_NodoArchivo nodo) async {
+  Future<void> _abrirDesdeArbol(NodoArchivo nodo) async {
     if (nodo.esCarpeta) return;
     // Si ya está abierto, solo activar.
     final i = _tabs.indexWhere((t) => t.ruta == nodo.ruta);
@@ -296,9 +365,50 @@ class _CodeViewState extends State<CodeView> {
       setState(() => _activa = i);
       return;
     }
+
+    final ext = nodo.nombre.contains('.') ? nodo.nombre.split('.').last.toLowerCase() : '';
+    if (_extensionesBinarias.contains(ext)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"${nodo.nombre}" es un archivo binario y no se puede abrir como texto en el editor.'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+
+    final file = File(nodo.ruta);
+    if (!await file.exists()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('El archivo "${nodo.nombre}" no existe en disco.')),
+        );
+      }
+      return;
+    }
+
+    try {
+      final tamano = await file.length();
+      if (tamano > _maxTamanoArchivoBytes) {
+        if (mounted) {
+          final tamMb = (tamano / (1024 * 1024)).toStringAsFixed(1);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('El archivo "${nodo.nombre}" ($tamMb MB) excede el límite de 3 MB para el editor.'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+        return;
+      }
+    } catch (_) {}
+
     String contenido = '';
     try {
-      contenido = await File(nodo.ruta).readAsString();
+      final bytes = await file.readAsBytes();
+      contenido = utf8.decode(bytes, allowMalformed: true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -307,9 +417,10 @@ class _CodeViewState extends State<CodeView> {
       }
       return;
     }
+    if (!mounted) return;
     final p = AppPalette.of(context);
     setState(() {
-      _tabs.add(_TabArchivo(
+      _tabs.add(TabArchivo(
         nombre: nodo.nombre,
         ruta: nodo.ruta,
         contenido: contenido,
@@ -322,7 +433,7 @@ class _CodeViewState extends State<CodeView> {
   }
 
   /// Renombra un archivo o carpeta en disco.
-  Future<void> _renombrar(_NodoArchivo nodo) async {
+  Future<void> _renombrar(NodoArchivo nodo) async {
     final nuevoNombre = await _dialogoTexto(
       titulo: 'Renombrar',
       etiqueta: 'Nuevo nombre',
@@ -359,7 +470,7 @@ class _CodeViewState extends State<CodeView> {
   }
 
   /// Elimina (mueve a papelera) un archivo o carpeta.
-  Future<void> _eliminarNodo(_NodoArchivo nodo) async {
+  Future<void> _eliminarNodo(NodoArchivo nodo) async {
     final confirmado = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -417,7 +528,7 @@ class _CodeViewState extends State<CodeView> {
           baseOffset: 0, extentOffset: valorInicial.length);
     }
     final p = AppPalette.of(context);
-    final res = await showDialog<String>(
+    final rutaDialogo = DialogRoute<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(titulo,
@@ -444,6 +555,8 @@ class _CodeViewState extends State<CodeView> {
         ],
       ),
     );
+    final res = await Navigator.of(context, rootNavigator: true).push(rutaDialogo);
+    await rutaDialogo.completed;
     ctrl.dispose();
     return res;
   }
@@ -464,16 +577,16 @@ class _CodeViewState extends State<CodeView> {
     final t = _tabActiva;
     if (t == null) return;
     if (t.ruta == null) {
-      final ruta = await FilePicker.platform.saveFile(
-        dialogTitle: 'Guardar archivo',
-        fileName: t.nombre,
+      final ruta = await DialogosNativos.guardarArchivo(
+        titulo: 'Guardar archivo',
+        nombreSugerido: t.nombre,
       );
       if (ruta == null) return;
       t.ruta = ruta;
       t.nombre = ruta.split(Platform.pathSeparator).last;
       // Re-detectar lenguaje según la nueva extensión.
       final ext = t.nombre.contains('.') ? t.nombre.split('.').last : '';
-      final nuevoLenguaje = _lenguajeDeExtension(ext);
+      final nuevoLenguaje = lenguajeDeExtension(ext);
       if (nuevoLenguaje != t.lenguaje) {
         t.lenguaje = nuevoLenguaje;
         t.controller().lenguaje = nuevoLenguaje;
@@ -500,10 +613,352 @@ class _CodeViewState extends State<CodeView> {
     }
   }
 
+  void _cargarRetoCurricular(LeccionCurricular leccion, AppPalette p) {
+    for (int i = 0; i < _tabs.length; i++) {
+      if (_tabs[i].leccionCurricular?.id == leccion.id) {
+        setState(() {
+          _activa = i;
+          _panelIaLateral = true;
+        });
+        return;
+      }
+    }
+
+    final nombreArchivo = 'reto_${leccion.id.replaceAll('.', '_')}.py';
+    final nuevaTab = TabArchivo(
+      nombre: nombreArchivo,
+      ruta: null,
+      contenido: leccion.codigoInicial,
+      original: leccion.codigoInicial,
+      lenguaje: 'python',
+      leccionCurricular: leccion,
+      palette: p,
+    );
+
+    setState(() {
+      _tabs.add(nuevaTab);
+      _activa = _tabs.length - 1;
+      _panelIaLateral = true;
+      _iaHistorial.add(MensajeEditorIa(
+        esUsuario: false,
+        texto: '🎓 **Reto Curricular Activo: ${leccion.titulo}**\n\n'
+            '📌 **Objetivo Pedagógico:**\n${leccion.descripcionPedagogica}\n\n'
+            '👨‍🏫 **Guía Didáctica:**\n${leccion.guiaDocente}\n\n'
+            '❓ **Pregunta de Autoevaluación:**\n*${leccion.preguntaAutoevaluacion}*\n\n'
+            '---\n'
+            '✍️ Desarrolla tu solución en el editor y presiona **▶ EJECUTAR** (F5) para probarla.\n'
+            '💡 Si necesitas ayuda o pistas progresivas, haz clic en **"Pedir Pista Pedagógica"**.',
+      ));
+    });
+    _autoScrollIa();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reto cargado en editor: ${leccion.titulo}'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  void _mostrarPistasCurriculares(LeccionCurricular leccion) {
+    final p = AppPalette.of(context);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: p.surface,
+        title: Row(
+          children: [
+            const Icon(Icons.lightbulb_rounded, color: AppColors.accent, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Pistas Pedagógicas: ${leccion.titulo}',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: p.text),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 520,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Andamiaje Progresivo (El Libro de Python):',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: p.subtle),
+              ),
+              const SizedBox(height: 10),
+              ...leccion.pistasAndamiaje.asMap().entries.map((entry) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '${entry.key + 1}',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.accent),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          entry.value,
+                          style: TextStyle(fontSize: 12, color: p.text, height: 1.4),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+              const SizedBox(height: 8),
+              Divider(color: p.borderSoft),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.help_outline_rounded, size: 16, color: p.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Autoevaluación: ${leccion.preguntaAutoevaluacion}',
+                      style: TextStyle(fontSize: 11.5, fontStyle: FontStyle.italic, color: p.muted),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _mostrarDialogoRetosCurriculares(BuildContext context, AppPalette p, SettingsProvider settings) {
+    String nivelSeleccionado = settings.nivelModulo;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final lecciones = CurriculumCatalog.leccionesPorModulo(nivelSeleccionado);
+          return AlertDialog(
+            backgroundColor: p.surface,
+            title: Row(
+              children: [
+                Icon(Icons.school_rounded, color: p.primary, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Retos Curriculares — El Libro de Python',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: p.text),
+                      ),
+                      Text(
+                        'Ejercicios prácticos con andamiaje pedagógico y evaluación',
+                        style: TextStyle(fontSize: 11.5, color: p.subtle),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 680,
+              height: 480,
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      _tabModuloDialog('principiante', 'Módulo 1: Principiante', nivelSeleccionado, p, () {
+                        setDialogState(() => nivelSeleccionado = 'principiante');
+                      }),
+                      const SizedBox(width: 6),
+                      _tabModuloDialog('intermedio', 'Módulo 2: Intermedio', nivelSeleccionado, p, () {
+                        setDialogState(() => nivelSeleccionado = 'intermedio');
+                      }),
+                      const SizedBox(width: 6),
+                      _tabModuloDialog('avanzado', 'Módulo 3: Avanzado', nivelSeleccionado, p, () {
+                        setDialogState(() => nivelSeleccionado = 'avanzado');
+                      }),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Divider(color: p.borderSoft, height: 1),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: lecciones.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (ctx, i) {
+                        final lec = lecciones[i];
+                        final estaAbierto = _tabs.any((t) => t.leccionCurricular?.id == lec.id);
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: p.surface2,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: estaAbierto ? p.primary.withValues(alpha: 0.5) : p.borderSoft,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: p.primary.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      lec.id,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: p.primary,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      lec.titulo,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: p.text,
+                                      ),
+                                    ),
+                                  ),
+                                  if (estaAbierto)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      margin: const EdgeInsets.only(right: 8),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.success.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text(
+                                        'Abierto',
+                                        style: TextStyle(fontSize: 10, color: AppColors.success, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  FilledButton.tonalIcon(
+                                    onPressed: () {
+                                      Navigator.pop(ctx);
+                                      if (settings.nivelModulo != nivelSeleccionado) {
+                                        settings.setNivelModulo(nivelSeleccionado);
+                                      }
+                                      _cargarRetoCurricular(lec, p);
+                                    },
+                                    style: FilledButton.styleFrom(
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    ),
+                                    icon: Icon(estaAbierto ? Icons.open_in_new_rounded : Icons.code_rounded, size: 14),
+                                    label: Text(estaAbierto ? 'Ver en Editor' : 'Cargar Reto', style: const TextStyle(fontSize: 11.5)),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                lec.descripcionPedagogica,
+                                style: TextStyle(fontSize: 11.5, color: p.muted, height: 1.3),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Icon(Icons.school_outlined, size: 12, color: p.subtle),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      lec.guiaDocente,
+                                      style: TextStyle(fontSize: 10.5, fontStyle: FontStyle.italic, color: p.subtle),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  InkWell(
+                                    onTap: () => _mostrarPistasCurriculares(lec),
+                                    child: Text(
+                                      'Ver Pistas (${lec.pistasAndamiaje.length})',
+                                      style: TextStyle(fontSize: 11, color: p.primary, fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cerrar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _tabModuloDialog(String id, String titulo, String seleccionado, AppPalette p, VoidCallback onTap) {
+    final activo = id == seleccionado;
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: activo ? p.primary.withValues(alpha: 0.15) : p.surface2,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: activo ? p.primary : p.borderSoft),
+          ),
+          child: Text(
+            titulo,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: activo ? FontWeight.bold : FontWeight.normal,
+              color: activo ? p.primary : p.muted,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _ejecutar() async {
     final t = _tabActiva;
     if (t == null || _ejecutando) return;
-    final ejecutable = _lenguajeEjecutable(t.lenguaje);
+    final ejecutable = lenguajeEjecutable(t.lenguaje);
     if (ejecutable == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -520,7 +975,7 @@ class _CodeViewState extends State<CodeView> {
     setState(() {
       _ejecutando = true;
       _output = null;
-      _panelActivo = _PanelInferior.output;
+      _panelActivo = PanelInferior.output;
     });
     final inicio = DateTime.now();
     try {
@@ -531,7 +986,7 @@ class _CodeViewState extends State<CodeView> {
         lenguaje: ejecutable,
       );
       setState(() {
-        _output = _ResultadoEjecucion(
+        _output = ResultadoEjecucion(
           stdout: (r['stdout'] ?? '').toString(),
           stderr: (r['stderr'] ?? '').toString(),
           exitCode: (r['exit_code'] as num?)?.toInt() ?? -1,
@@ -539,6 +994,7 @@ class _CodeViewState extends State<CodeView> {
           timeout: r['timeout'] == true,
           lenguaje: ejecutable,
         );
+        _extraerProblemasDeOutput(_output!, t.nombre);
       });
       _terminalLog.add(
         '${inicio.toString().substring(11, 19)} · ${ejecutable.toUpperCase()} '
@@ -546,7 +1002,7 @@ class _CodeViewState extends State<CodeView> {
       );
     } catch (e) {
       setState(() {
-        _output = _ResultadoEjecucion(
+        _output = ResultadoEjecucion(
           stdout: '',
           stderr: 'Error invocando al backend: $e',
           exitCode: -1,
@@ -554,62 +1010,565 @@ class _CodeViewState extends State<CodeView> {
           timeout: false,
           lenguaje: ejecutable,
         );
+        _problemas.clear();
+        _problemas.add('Error de conexión o ejecución: $e');
       });
     } finally {
       if (mounted) setState(() => _ejecutando = false);
     }
   }
 
-  Future<void> _consultarIa(String pregunta) async {
+  void _extraerProblemasDeOutput(ResultadoEjecucion out, String nombreArchivo) {
+    _problemas.clear();
+    final err = out.stderr.trim();
+    if (err.isEmpty) return;
+
+    final lineas = err.split('\n');
+    for (final l in lineas) {
+      final s = l.trim();
+      if (s.isEmpty) continue;
+      if (s.endsWith('Error') ||
+          s.contains('Error:') ||
+          s.contains('Exception:')) {
+        if (!_problemas.contains(s)) {
+          _problemas.add(s);
+        }
+      }
+    }
+    if (_problemas.isEmpty && out.exitCode != 0) {
+      _problemas.add('Proceso finalizado con código de error ${out.exitCode}');
+    }
+  }
+
+  Future<void> _consultarIa(String pregunta, {String? instruccionPrevia}) async {
+    final textoLimpio = pregunta.trim();
+    if (textoLimpio.isEmpty || _iaCargando) return;
+    if (instruccionPrevia == null) {
+      if (await _crearCarpetaPorInstruccion(textoLimpio)) return;
+      if (!mounted) return;
+    }
     final t = _tabActiva;
-    if (t == null || pregunta.trim().isEmpty || _iaCargando) return;
     final settings = context.read<SettingsProvider>();
     final api = context.read<AuthProvider>().api;
+
     setState(() {
       _iaCargando = true;
-      _iaUltimaRespuesta = null;
+      _panelIaLateral = true; // Abre automáticamente el panel lateral de IA
+      _iaHistorial.add(MensajeEditorIa(
+        esUsuario: true,
+        texto: textoLimpio,
+      ));
     });
-    final prompt =
-        '${pregunta.trim()}\n\nContexto: este es el archivo "${t.nombre}" '
-        '(lenguaje: ${t.lenguaje}):\n\n```${t.lenguaje}\n${t.contenido}\n```';
+
+    _autoScrollIa();
 
     try {
-      // Necesitamos una conversación. Si no hay una activa, creamos una rápida.
-      final chat = context.read<ChatProvider>();
-      if (chat.activaId == null) {
-        chat.nueva();
-        // Pequeño wait para que el state se propague antes de leerlo.
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-      }
-      // Si seguimos sin id (provider crea conv solo al enviar primer
-      // mensaje), enviamos vía el provider que lo gestiona internamente.
-      if (chat.activaId == null) {
-        await chat.enviar(prompt, idioma: settings.idioma);
-        final msgs = chat.mensajes;
-        final ultima = msgs.isNotEmpty ? msgs.last : null;
-        setState(() {
-          _iaUltimaRespuesta = (ultima != null && !ultima.esUsuario)
-              ? ultima.contenido
-              : '(sin respuesta del asistente)';
-        });
+    final contenidoAlEnviar = t?.contenido;
+    final pideCambio = esPeticionDeCambio(textoLimpio) ||
+        (_iaCambioPendiente && esConfirmacionDeCambio(textoLimpio));
+    final buffer = StringBuffer();
+    if (instruccionPrevia != null && instruccionPrevia.isNotEmpty) {
+      buffer.writeln(instruccionPrevia);
+      buffer.writeln();
+    }
+
+    buffer.writeln('Petición actual del estudiante: $textoLimpio');
+    if (_iaCambioPendiente && esConfirmacionDeCambio(textoLimpio)) {
+      buffer.writeln('Aplica la corrección que propusiste en el turno anterior al archivo actual. Devuelve el archivo completo.');
+    }
+    final esNuevaCreacion = RegExp(r'\b(crea|crear|haz|hacer|desarrolla|desarrollar|construye|construir|genera|generar|nueva?|nuevo)\b', caseSensitive: false).hasMatch(textoLimpio) &&
+        !RegExp(r'\b(en este archivo|a este archivo|en esta funci[oó]n|agrega|a[ñn]ade|este c[oó]digo|el c[oó]digo actual)\b', caseSensitive: false).hasMatch(textoLimpio);
+
+    if (t != null && !esNuevaCreacion) {
+      buffer.writeln(
+        'Contexto: Estás colaborando en el archivo "${t.nombre}". '
+        'Comprende con tu capacidad de inteligencia artificial la intención del estudiante: '
+        'si pide programar, cambiar, quitar, adaptar o probar cualquier lógica en este archivo '
+        '(por ejemplo: valores fijos, sin input, fórmulas, funciones o scripts directos), '
+        'devuelve el código completo y funcional en un bloque ```${t.lenguaje} listo para ejecutarse.',
+      );
+      buffer.writeln();
+
+      final p = AppPalette.of(context);
+      final ctrl = t.controller(p);
+      final seleccion = textoSeleccionadoSeguro(ctrl);
+      final esDoc = t.lenguaje == 'markdown' ||
+          t.nombre.toLowerCase().endsWith('.md') ||
+          t.nombre.toLowerCase().endsWith('.txt');
+      final etiqueta = esDoc ? 'Documento Markdown/Texto' : 'Código';
+      if (seleccion.trim().isNotEmpty && !pideCambio) {
+        buffer.writeln('Fragmento de $etiqueta seleccionado en el editor ("${t.nombre}"):');
+        final seleccionSegura = seleccion.length > 3500
+            ? seleccion.substring(0, 3500)
+            : seleccion;
+        buffer.writeln('```${t.lenguaje}\n$seleccionSegura\n```\n');
       } else {
-        final resp = await api.enviarMensaje(
-          chat.activaId!,
-          prompt,
-          idioma: settings.idioma,
-          buscarWeb: false,
-        );
+        final contenidoSeguro = t.contenido.length > 180000
+            ? '${t.contenido.substring(0, 90000)}\n# ... [contenido intermedio omitido] ...\n${t.contenido.substring(t.contenido.length - 90000)}'
+            : t.contenido;
+        buffer.writeln('$etiqueta actual en el editor ("${t.nombre}"):');
+        buffer.writeln('```${t.lenguaje}');
+        buffer.writeln(contenidoSeguro);
+        buffer.writeln('```');
+      }
+    } else if (esNuevaCreacion) {
+      buffer.writeln('Instrucción: El usuario solicita crear una solución o código nuevo. Genera el código completo, limpio y listo para ejecutarse.');
+    } else if (_carpetaRaiz != null) {
+      final hijosNombres = _arbol?.hijos.map((h) => (h.esCarpeta ? '📁 ' : '📄 ') + h.nombre).take(20).join(', ') ?? '';
+      buffer.writeln('Contexto del proyecto: Carpeta "${_carpetaRaiz!.split(Platform.pathSeparator).last}".');
+      if (hijosNombres.isNotEmpty) {
+        buffer.writeln('Estructura de archivos: $hijosNombres.');
+      }
+    }
+
+    if (t == null) {
+      for (final mensaje in _iaHistorial.reversed) {
+        if (mensaje.esUsuario || mensaje.codigoExtraido == null) continue;
+        final codigoPrevio = mensaje.codigoExtraido!.trim();
+        if (codigoPrevio.isNotEmpty) {
+          buffer.writeln('Último código generado para continuar:');
+          buffer.writeln('```python');
+          buffer.writeln(codigoPrevio.length > 3000
+              ? codigoPrevio.substring(0, 3000)
+              : codigoPrevio);
+          buffer.writeln('```');
+          break;
+        }
+      }
+    }
+
+    // Incluir contexto pedagógico si hay un reto curricular activo y es relevante para el archivo actual
+    if (t?.leccionCurricular != null && settings.esConAcompanamiento && !esNuevaCreacion) {
+      final lec = t!.leccionCurricular!;
+      buffer.writeln('\n[RETO CURRICULAR ACTIVO]');
+      buffer.writeln('Título del Reto: ${lec.titulo}');
+      buffer.writeln('Objetivo Pedagógico: ${lec.descripcionPedagogica}');
+      buffer.writeln('Guía Didáctica: ${lec.guiaDocente}');
+      buffer.writeln('Pregunta de Autoevaluación Sugerida: ${lec.preguntaAutoevaluacion}');
+    }
+
+    // Incluir error reciente de terminal solo si el usuario pide corregir o no es nueva creación
+    if (_output != null && _output!.stderr.trim().isNotEmpty && !esNuevaCreacion) {
+      buffer.writeln('\nSalida de error reciente de la última ejecución (stderr):');
+      final error = _output!.stderr.trim();
+      buffer.writeln('```\n${error.length > 1000 ? error.substring(0, 1000) : error}\n```');
+    }
+
+    final prompt = buffer.toString();
+
+      _iaConversacionId ??= await api.crearConversacion(
+        'Editor: ${t?.nombre ?? _carpetaRaiz?.split(Platform.pathSeparator).last ?? 'sin archivo'}',
+      );
+      final resp = await api.enviarMensaje(
+        _iaConversacionId!,
+        prompt,
+        idioma: settings.idioma,
+        buscarWeb: false,
+        proveedor: settings.proveedor,
+        modoAcompanamiento: settings.modoAcompanamiento,
+        nivelModulo: settings.nivelModulo,
+      ).timeout(const Duration(seconds: 90));
+      if (mounted) {
+        final respuestaTexto = resp.mensajeAsistente.contenido;
+        final archivosPropuestos = extraerArchivosPropuestos(respuestaTexto);
+        final archivoActualPropuesto = t != null && archivosPropuestos.length == 1 &&
+            archivosPropuestos.single.rutaRelativa.replaceAll('\\', '/').split('/').last == t.nombre;
+        final codigoExtraido = archivoActualPropuesto
+            ? archivosPropuestos.single.contenido
+            : _extraerCodigoDeMarkdown(respuestaTexto);
         setState(() {
-          _iaUltimaRespuesta = resp.mensajeAsistente.contenido;
+          _iaCambioPendiente = codigoExtraido != null || RegExp(
+            r'(?:¿|\?).*(?:corr[íi][jg]|correg|arregl|modific|aplic|actualiz)|(?:quieres|deseas|puedo).*(?:corr[íi][jg]|correg|arregl|modific|aplic|actualiz)',
+            caseSensitive: false,
+          ).hasMatch(respuestaTexto);
+          _iaHistorial.add(MensajeEditorIa(
+            esUsuario: false,
+            texto: respuestaTexto,
+            codigoExtraido: codigoExtraido,
+          ));
         });
+        _autoScrollIa();
+
+        // 🚀 APLICACIÓN INTELIGENTE EN TIEMPO REAL:
+        // Si hay un archivo abierto y la IA generó una versión de código que difiere de la actual:
+        if (codigoExtraido != null && codigoExtraido.trim().isNotEmpty && t != null && !esNuevaCreacion && pideCambio &&
+            (archivosPropuestos.isEmpty || archivoActualPropuesto)) {
+          final contextoCompleto = !resp.mensajeAsistente.contextoRecortado &&
+              !resp.mensajeAsistente.respuestaIncompleta;
+          final esDiferente = codigoExtraido.trim() != t.contenido.trim();
+          if (esDiferente && contenidoAlEnviar!.length <= 180000 && contextoCompleto &&
+              _tabs.contains(t) && t.contenido == contenidoAlEnviar) {
+            final sintaxis = t.lenguaje == 'python'
+                ? await api.validarSintaxisPython(codigoExtraido)
+                : <String, dynamic>{'valido': true};
+            if (!mounted) return;
+            if (sintaxis['valido'] == true) {
+              if (_tabs.contains(t) && t.contenido == contenidoAlEnviar) {
+                _reemplazarTodoElArchivo(codigoExtraido, archivo: t);
+                _iaCambioPendiente = false;
+              }
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('La propuesta contiene un detalle sintáctico. Puedes revisarla con «Ver Diff» o en el chat.'),
+                duration: Duration(seconds: 3),
+              ));
+            }
+          }
+        } else if (codigoExtraido != null && codigoExtraido.trim().isNotEmpty && (t == null || esNuevaCreacion)) {
+          // Si no hay archivo abierto y la IA generó código, crear y abrir pestaña automáticamente
+          String nombreSugerido = 'programa.py';
+          final cLow = codigoExtraido.toLowerCase();
+          if (cLow.contains('calculadora')) {
+            nombreSugerido = 'calculadora.py';
+          } else if (cLow.contains('tabla') || cLow.contains('multiplic')) {
+            nombreSugerido = 'tablas_multiplicar.py';
+          } else if (cLow.contains('promedio') || cLow.contains('nota')) {
+            nombreSugerido = 'calcula_promedio.py';
+          } else if (cLow.contains('fibonacci')) {
+            nombreSugerido = 'fibonacci.py';
+          }
+          final p = AppPalette.of(context);
+          setState(() {
+            _tabs.add(TabArchivo(
+              nombre: nombreSugerido,
+              ruta: null,
+              contenido: codigoExtraido,
+              original: codigoExtraido,
+              lenguaje: 'python',
+              palette: p,
+            ));
+            _activa = _tabs.length - 1;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Se abrió una nueva pestaña con "$nombreSugerido" lista para ejecutar.'),
+              backgroundColor: AppColors.success,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        } else if (codigoExtraido != null && codigoExtraido.trim().isNotEmpty && t != null && t.contenido.trim().isEmpty) {
+          _reemplazarTodoElArchivo(codigoExtraido, archivo: t);
+        }
       }
     } catch (e) {
-      setState(() {
-        _iaUltimaRespuesta = 'Error al consultar IA: $e';
-      });
+      if (mounted) {
+        setState(() {
+          _iaHistorial.add(MensajeEditorIa(
+            esUsuario: false,
+            texto: e is TimeoutException
+                ? 'La consulta superó el tiempo de espera y se detuvo. Puedes volver a intentarlo con una petición más concreta.'
+                : 'No se pudo completar la consulta: $e',
+          ));
+        });
+        _autoScrollIa();
+      }
     } finally {
       if (mounted) setState(() => _iaCargando = false);
     }
+  }
+
+  Future<bool> _crearCarpetaPorInstruccion(String texto) async {
+    final coincidencia = RegExp(
+      r'^(?:crea|crear|haz|agrega|añade)\s+(?:(?:una?|otra)\s+)?carpeta\s+(?:llamada\s+)?["`]?([\w-]+)["`]?\s*[.!]?$',
+      caseSensitive: false,
+    ).firstMatch(texto);
+    if (coincidencia == null) return false;
+    final nombre = coincidencia.group(1)!;
+    final raiz = _carpetaRaiz ?? await DialogosNativos.seleccionarCarpeta(
+      titulo: 'Selecciona el proyecto donde crear $nombre',
+    );
+    if (raiz == null || !mounted) return true;
+    final destino = Directory('$raiz${Platform.pathSeparator}$nombre');
+    try {
+      final existia = await destino.exists();
+      if (!existia) await destino.create();
+      setState(() {
+        _carpetaRaiz = raiz;
+        _iaHistorial.add(MensajeEditorIa(esUsuario: true, texto: texto));
+        _iaHistorial.add(MensajeEditorIa(
+          esUsuario: false,
+          texto: existia ? 'La carpeta `$nombre` ya existe en el proyecto.'
+              : 'Creé la carpeta `$nombre` dentro del proyecto abierto.',
+        ));
+      });
+      await _refrescarArbol();
+    } catch (e) {
+      setState(() => _iaHistorial.add(MensajeEditorIa(
+        esUsuario: false, texto: 'No se pudo crear la carpeta: $e',
+      )));
+    }
+    _autoScrollIa();
+    return true;
+  }
+
+  Future<void> _crearEstructuraDesdeIa(String respuesta) async {
+    final archivos = extraerArchivosPropuestos(respuesta).take(30).toList();
+    if (archivos.isEmpty) return;
+    final raiz = _carpetaRaiz ?? await DialogosNativos.seleccionarCarpeta(
+      titulo: 'Selecciona la carpeta raíz del proyecto',
+    );
+    if (raiz == null || !mounted) return;
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (dialogo) => AlertDialog(
+        title: const Text('Crear estructura propuesta'),
+        content: SizedBox(
+          width: 480,
+          height: 240,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Revisa las rutas. Los archivos existentes se conservarán.'),
+            const SizedBox(height: 10),
+            Expanded(child: ListView(children: [
+              for (final archivo in archivos) Text('• ${archivo.rutaRelativa}'),
+            ])),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogo, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(dialogo, true), child: const Text('Crear archivos')),
+        ],
+      ),
+    );
+    if (confirmar != true || !mounted) return;
+    var creados = 0;
+    var omitidos = 0;
+    for (final archivo in archivos) {
+      final partes = archivo.rutaRelativa.replaceAll('\\', '/').split('/');
+      if (!rutaPropuestaSegura(archivo.rutaRelativa)) {
+        omitidos++;
+        continue;
+      }
+      var actual = raiz;
+      var enlace = false;
+      for (final parte in partes.take(partes.length - 1)) {
+        actual = '$actual${Platform.pathSeparator}$parte';
+        if (await FileSystemEntity.type(actual, followLinks: false) == FileSystemEntityType.link) {
+          enlace = true;
+          break;
+        }
+      }
+      if (enlace) { omitidos++; continue; }
+      final ruta = '$raiz${Platform.pathSeparator}${partes.join(Platform.pathSeparator)}';
+      final archivoDisco = File(ruta);
+      if (await archivoDisco.exists()) { omitidos++; continue; }
+      try {
+        await archivoDisco.parent.create(recursive: true);
+        await archivoDisco.writeAsString(archivo.contenido, flush: true);
+        creados++;
+      } catch (_) { omitidos++; }
+    }
+    if (!mounted) return;
+    setState(() => _carpetaRaiz = raiz);
+    await _refrescarArbol();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Estructura aplicada: $creados archivo(s) creados, $omitidos omitidos.'),
+    ));
+  }
+
+  Future<void> _ejecutarAuditoriaAst() async {
+    setState(() {
+      _iaCargando = true;
+      _panelIaLateral = true;
+      _iaHistorial.add(MensajeEditorIa(
+        esUsuario: true,
+        texto: 'Auditoría arquitectónica completa del proyecto mediante AST (Map-Reduce).',
+      ));
+    });
+    _autoScrollIa();
+
+    try {
+      final api = context.read<AuthProvider>().api;
+      final res = await api.auditarProyectoAST(conAuditoriaIa: true, proveedor: 'auto');
+      if (mounted) {
+        final informe = res['informe_ia']?.toString() ?? 'Auditoría completada.';
+        setState(() {
+          _iaHistorial.add(MensajeEditorIa(
+            esUsuario: false,
+            texto: informe,
+          ));
+        });
+        _autoScrollIa();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _iaHistorial.add(MensajeEditorIa(
+            esUsuario: false,
+            texto: 'Error al realizar la auditoría AST: $e',
+          ));
+        });
+        _autoScrollIa();
+      }
+    } finally {
+      if (mounted) setState(() => _iaCargando = false);
+    }
+  }
+
+  void _autoScrollIa() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_iaScrollCtrl.hasClients) {
+        _iaScrollCtrl.animateTo(
+          _iaScrollCtrl.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  void _insertarCodigoEnCursor(String codigo) {
+    final t = _tabActiva;
+    if (t == null) return;
+    final p = AppPalette.of(context);
+    final ctrl = t.controller(p);
+    final text = ctrl.text;
+    final sel = ctrl.selection;
+
+    int start = sel.start;
+    int end = sel.end;
+    if (start < 0 || end < 0) {
+      start = text.length;
+      end = text.length;
+    }
+
+    final nuevoTexto = text.replaceRange(start, end, codigo);
+    setState(() {
+      t.contenido = nuevoTexto;
+      ctrl.text = nuevoTexto;
+      ctrl.selection = TextSelection.collapsed(offset: start + codigo.length);
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Código insertado en la posición del cursor'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _reemplazarTodoElArchivo(String nuevoCodigo, {TabArchivo? archivo}) {
+    final t = archivo ?? _tabActiva;
+    if (t == null) return;
+    final p = AppPalette.of(context);
+    final anterior = t.contenido;
+    setState(() {
+      t.contenido = nuevoCodigo;
+      t.controller(p).text = nuevoCodigo;
+    });
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        width: 360,
+        backgroundColor: p.surface2,
+        elevation: 6,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: p.borderSoft),
+        ),
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.check_circle_outline_rounded, size: 16, color: Color(0xFF4ADE80)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '${t.nombre} actualizado (Ctrl+S)',
+                style: TextStyle(color: p.text, fontSize: 12, fontWeight: FontWeight.w500),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 3),
+        action: SnackBarAction(
+          label: 'Deshacer',
+          textColor: p.primary,
+          onPressed: () {
+            if (!mounted || !_tabs.contains(t) || t.contenido != nuevoCodigo) return;
+            setState(() {
+              t.contenido = anterior;
+              t.controller(p).text = anterior;
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _crearArchivoDesdeIa(String codigo) async {
+    final p = AppPalette.of(context);
+    String nombreSugerido = 'programa.py';
+    final cLow = codigo.toLowerCase();
+    if (cLow.contains('tabla') || cLow.contains('multiplic')) {
+      nombreSugerido = 'tablas_multiplicar.py';
+    } else if (cLow.contains('promedio') || cLow.contains('nota')) {
+      nombreSugerido = 'calcula_promedio.py';
+    } else if (cLow.contains('primo')) {
+      nombreSugerido = 'numeros_primos.py';
+    } else if (cLow.contains('par') && cLow.contains('impar')) {
+      nombreSugerido = 'par_o_impar.py';
+    } else if (cLow.contains('calculadora')) {
+      nombreSugerido = 'calculadora.py';
+    } else if (cLow.contains('fibonacci')) {
+      nombreSugerido = 'fibonacci.py';
+    } else if (cLow.contains('factorial')) {
+      nombreSugerido = 'factorial.py';
+    } else if (cLow.contains('orden') || cLow.contains('burbuja')) {
+      nombreSugerido = 'ordenamiento.py';
+    }
+
+    final nombreElegido = await _dialogoTexto(
+      titulo: 'Crear nuevo archivo con este código',
+      etiqueta: 'Nombre del archivo',
+      valorInicial: nombreSugerido,
+      botonOk: 'Crear y Abrir',
+    );
+    if (nombreElegido == null || nombreElegido.trim().isEmpty) return;
+    final nombreFinal = nombreElegido.trim();
+    final ext = nombreFinal.contains('.') ? nombreFinal.split('.').last : 'py';
+    final lenguaje = lenguajeDeExtension(ext);
+
+    String? rutaFinal;
+    if (_carpetaRaiz != null) {
+      rutaFinal = '$_carpetaRaiz${Platform.pathSeparator}$nombreFinal';
+      try {
+        await File(rutaFinal).writeAsString(codigo, flush: true);
+        await _refrescarArbol();
+      } catch (_) {}
+    }
+
+    setState(() {
+      _tabs.add(TabArchivo(
+        nombre: nombreFinal,
+        ruta: rutaFinal,
+        contenido: codigo,
+        original: codigo,
+        lenguaje: lenguaje,
+        palette: p,
+      ));
+      _activa = _tabs.length - 1;
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Archivo "$nombreFinal" creado y abierto en el editor.'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  void _copiarCodigo(String codigo) {
+    Clipboard.setData(ClipboardData(text: codigo));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Código copiado al portapapeles'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   // ────────────────────── Build ──────────────────────
@@ -619,72 +1578,154 @@ class _CodeViewState extends State<CodeView> {
     final p = AppPalette.of(context);
     return Shortcuts(
       shortcuts: <ShortcutActivator, Intent>{
-        SingleActivator(LogicalKeyboardKey.keyS, control: true): const _GuardarIntent(),
-        SingleActivator(LogicalKeyboardKey.keyS, meta: true): const _GuardarIntent(),
-        SingleActivator(LogicalKeyboardKey.f5): const _EjecutarIntent(),
-        SingleActivator(LogicalKeyboardKey.keyR, control: true): const _EjecutarIntent(),
-        SingleActivator(LogicalKeyboardKey.keyR, meta: true): const _EjecutarIntent(),
+        SingleActivator(LogicalKeyboardKey.keyS, control: true): const GuardarIntent(),
+        SingleActivator(LogicalKeyboardKey.keyS, meta: true): const GuardarIntent(),
+        SingleActivator(LogicalKeyboardKey.f5): const EjecutarIntent(),
+        SingleActivator(LogicalKeyboardKey.keyR, control: true): const EjecutarIntent(),
+        SingleActivator(LogicalKeyboardKey.keyR, meta: true): const EjecutarIntent(),
       },
       child: Actions(
         actions: <Type, Action<Intent>>{
-          _GuardarIntent: CallbackAction<_GuardarIntent>(
+          GuardarIntent: CallbackAction<GuardarIntent>(
               onInvoke: (_) { _guardar(); return null; }),
-          _EjecutarIntent: CallbackAction<_EjecutarIntent>(
+          EjecutarIntent: CallbackAction<EjecutarIntent>(
               onInvoke: (_) { _ejecutar(); return null; }),
         },
         child: Focus(
           autofocus: true,
-          child: Container(
-            color: p.bg,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // ── Lado IZQUIERDO: editor + panel inferior ───────────
-                Expanded(
-                  child: Column(
-                    children: [
-                      _tabBar(p),
-                      Container(height: 1, color: p.borderSoft),
-                      Expanded(child: _editor(p)),
-                      _toolbar(p),
-                      // Divisor horizontal arrastrable: cambia el alto
-                      // del panel inferior (output / terminal / problemas / IA).
-                      _DivisorHorizontal(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final disponible = constraints.maxWidth;
+              final maxExplorador = (disponible * 0.22).clamp(160.0, _maxAnchoExplorador);
+              final maxIa = (disponible * 0.35).clamp(240.0, _maxAnchoPanelIa);
+              final anchoExplorador = _anchoExplorador.clamp(160.0, maxExplorador);
+              final anchoIa = _anchoPanelIa.clamp(240.0, maxIa);
+
+              return Container(
+                color: p.bg,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // ── Lado IZQUIERDO: EXPLORADOR (Estilo VS Code / Cursor) ──
+                    if (_sidebarArchivos)
+                      SizedBox(
+                        width: anchoExplorador,
+                        child: _sidebar(p),
+                      ),
+                    // ── Divisor vertical arrastrable (explorador ↔ editor) ─
+                    if (_sidebarArchivos)
+                      DivisorVertical(
                         onDrag: (delta) {
                           setState(() {
-                            _altoPanelInferior = (_altoPanelInferior - delta)
-                                .clamp(_minAltoPanelInferior,
-                                    _maxAltoPanelInferior);
+                            _anchoExplorador = (_anchoExplorador + delta)
+                                .clamp(_minAnchoExplorador, _maxAnchoExplorador);
                           });
                         },
                       ),
-                      SizedBox(
-                        height: _altoPanelInferior,
-                        child: _panelInferior(p),
+                    // ── Centro: EDITOR + PANEL INFERIOR ─────────────
+                    Expanded(
+                      child: Column(
+                        children: [
+                          _tabBar(p),
+                          _breadcrumbBar(p),
+                          Container(height: 1, color: p.borderSoft),
+                          Expanded(child: _editor(p)),
+                          _toolbar(p),
+                          // Divisor horizontal arrastrable: cambia el alto
+                          // del panel inferior (output / terminal / problemas).
+                          DivisorHorizontal(
+                            onDrag: (delta) {
+                              setState(() {
+                                _altoPanelInferior = (_altoPanelInferior - delta)
+                                    .clamp(_minAltoPanelInferior,
+                                        _maxAltoPanelInferior);
+                              });
+                            },
+                          ),
+                          SizedBox(
+                            height: _altoPanelInferior,
+                            child: _panelInferior(p),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                    // ── Lado DERECHO: PANEL ASISTENTE IA (Estilo Cursor / Antigravity) ──
+                    if (_panelIaLateral)
+                      DivisorVertical(
+                        onDrag: (delta) {
+                          setState(() {
+                            _anchoPanelIa = (_anchoPanelIa - delta)
+                                .clamp(_minAnchoPanelIa, _maxAnchoPanelIa);
+                          });
+                        },
+                      ),
+                    if (_panelIaLateral)
+                      SizedBox(
+                        width: anchoIa,
+                        child: _panelIaLateralWidget(p),
+                      ),
+                  ],
                 ),
-                // ── Divisor vertical arrastrable (editor ↔ explorador) ─
-                if (_sidebarArchivos)
-                  _DivisorVertical(
-                    onDrag: (delta) {
-                      setState(() {
-                        _anchoExplorador = (_anchoExplorador - delta)
-                            .clamp(_minAnchoExplorador, _maxAnchoExplorador);
-                      });
-                    },
-                  ),
-                // ── Lado DERECHO: EXPLORADOR ──────────────────────────
-                if (_sidebarArchivos)
-                  SizedBox(
-                    width: _anchoExplorador,
-                    child: _sidebar(p),
-                  ),
-              ],
-            ),
+              );
+            },
           ),
         ),
+      ),
+    );
+  }
+
+  // ──────────── Breadcrumb Bar (Estilo VS Code / Cursor) ────────────
+
+  Widget _breadcrumbBar(AppPalette p) {
+    final t = _tabActiva;
+    final nombre = t?.nombre ?? 'Sin archivo seleccionado';
+    final lines = t != null ? (t.contenido.split('\n').length) : 0;
+    final lenguaje = t?.lenguaje.toUpperCase() ?? 'TEXT';
+    return Container(
+      height: 26,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: p.surface2.withValues(alpha: 0.35),
+        border: Border(bottom: BorderSide(color: p.borderSoft)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.folder_open_outlined, size: 13, color: p.subtle),
+          const SizedBox(width: 5),
+          Text(
+            _carpetaRaiz != null
+                ? _carpetaRaiz!.split(Platform.pathSeparator).last
+                : 'Proyecto',
+            style: TextStyle(fontSize: 11, color: p.subtle),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Text('›', style: TextStyle(fontSize: 12, color: p.subtle)),
+          ),
+          if (t != null) ...[
+            Icon(iconoLenguaje(t.lenguaje), size: 12, color: p.primary),
+            const SizedBox(width: 5),
+            Text(
+              nombre,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: p.text,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              '$lines líneas  •  $lenguaje  •  UTF-8',
+              style: TextStyle(
+                fontSize: 10.5,
+                color: p.subtle,
+              ),
+            ),
+          ] else ...[
+            Text('Ningún archivo abierto',
+                style: TextStyle(fontSize: 11, color: p.subtle)),
+          ],
+        ],
       ),
     );
   }
@@ -853,7 +1894,7 @@ class _CodeViewState extends State<CodeView> {
   }
 
   /// Renderiza un nodo del árbol (archivo o carpeta). Recursivo.
-  Widget _nodoTile(AppPalette p, _NodoArchivo n, {required int profundidad}) {
+  Widget _nodoTile(AppPalette p, NodoArchivo n, {required int profundidad}) {
     final indent = 8.0 + profundidad * 12.0;
     if (n.esCarpeta) {
       return Column(
@@ -868,11 +1909,17 @@ class _CodeViewState extends State<CodeView> {
             esCarpeta: true,
             onTap: () async {
               if (!n.expandido && n.hijos == null) {
-                // Lazy load
-                final sub = await _construirArbol(n.ruta);
-                n.hijos = sub.hijos;
+                try {
+                  final sub = await _construirArbol(n.ruta);
+                  if (!mounted) return;
+                  n.hijos = sub.hijos;
+                } catch (_) {
+                  n.hijos = [];
+                }
               }
-              setState(() => n.expandido = !n.expandido);
+              if (mounted) {
+                setState(() => n.expandido = !n.expandido);
+              }
             },
             onContext: () => _menuContextual(n),
           ),
@@ -885,7 +1932,7 @@ class _CodeViewState extends State<CodeView> {
       p,
       indent: indent + 16, // alineado con texto de carpeta
       icono: null,
-      iconoArchivo: _iconoLenguaje(n.lenguaje ?? 'texto'),
+      iconoArchivo: iconoLenguaje(n.lenguaje ?? 'texto'),
       nombre: n.nombre,
       esCarpeta: false,
       onTap: () => _abrirDesdeArbol(n),
@@ -932,7 +1979,7 @@ class _CodeViewState extends State<CodeView> {
     );
   }
 
-  Future<void> _menuContextual(_NodoArchivo n) async {
+  Future<void> _menuContextual(NodoArchivo n) async {
     final p = AppPalette.of(context);
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final pos = overlay.localToGlobal(Offset.zero);
@@ -1065,7 +2112,7 @@ class _CodeViewState extends State<CodeView> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(_iconoLenguaje(t.lenguaje), size: 12, color: p.muted),
+            Icon(iconoLenguaje(t.lenguaje), size: 12, color: p.muted),
             const SizedBox(width: 6),
             Text(t.nombre,
                 style: TextStyle(
@@ -1099,7 +2146,12 @@ class _CodeViewState extends State<CodeView> {
 
   Widget _editor(AppPalette p) {
     final t = _tabActiva;
-    if (t == null) return _vacio(p);
+    if (t == null) {
+      return CodeEmptyState(
+        onAbrir: _abrirArchivos,
+        onNuevo: _nuevoArchivo,
+      );
+    }
     // Asegurar controller y propagar paleta actual.
     final controller = t.controller(p);
     controller.palette = p;
@@ -1141,12 +2193,72 @@ class _CodeViewState extends State<CodeView> {
           // sin overlays. Esto elimina el problema de "texto rayado".
           Expanded(
             child: TextField(
+              key: const ValueKey('editor-codigo'),
               controller: controller,
               maxLines: null,
               expands: true,
               textAlignVertical: TextAlignVertical.top,
               cursorColor: p.primary,
               onChanged: (v) => setState(() => t.contenido = v),
+              contextMenuBuilder: (context, editableTextState) {
+                final List<ContextMenuButtonItem> buttonItems =
+                    List.from(editableTextState.contextMenuButtonItems);
+                final seleccion = textoSeleccionadoSeguro(controller);
+                if (seleccion.trim().isNotEmpty) {
+                  buttonItems.insert(
+                    0,
+                    ContextMenuButtonItem(
+                      label: '⚡ Explicar selección',
+                      onPressed: () {
+                        ContextMenuController.removeAny();
+                        setState(() => _panelActivo = PanelInferior.ia);
+                        final esDoc = t.lenguaje == 'markdown' ||
+                            t.nombre.toLowerCase().endsWith('.md') ||
+                            t.nombre.toLowerCase().endsWith('.txt');
+                        if (esDoc) {
+                          _consultarIa(
+                            'Explica y contextualiza este fragmento del documento ("${t.nombre}"):\n\n$seleccion',
+                          );
+                        } else {
+                          _consultarIa(
+                            'Explícame paso a paso este fragmento de código:\n```${t.lenguaje}\n$seleccion\n```',
+                          );
+                        }
+                      },
+                    ),
+                  );
+                  buttonItems.insert(
+                    1,
+                    ContextMenuButtonItem(
+                      label: '🐛 Detectar bugs',
+                      onPressed: () {
+                        ContextMenuController.removeAny();
+                        setState(() => _panelActivo = PanelInferior.ia);
+                        _consultarIa(
+                          'Revisa si hay bugs o fallas en este código y cómo solucionarlos:\n```${t.lenguaje}\n$seleccion\n```',
+                        );
+                      },
+                    ),
+                  );
+                  buttonItems.insert(
+                    2,
+                    ContextMenuButtonItem(
+                      label: '✨ Optimizar',
+                      onPressed: () {
+                        ContextMenuController.removeAny();
+                        setState(() => _panelActivo = PanelInferior.ia);
+                        _consultarIa(
+                          'Propón una versión más limpia y eficiente de este fragmento:\n```${t.lenguaje}\n$seleccion\n```',
+                        );
+                      },
+                    ),
+                  );
+                }
+                return AdaptiveTextSelectionToolbar.buttonItems(
+                  anchors: editableTextState.contextMenuAnchors,
+                  buttonItems: buttonItems,
+                );
+              },
               decoration: const InputDecoration(
                 contentPadding: EdgeInsets.fromLTRB(10, 10, 10, 10),
                 border: InputBorder.none,
@@ -1170,7 +2282,8 @@ class _CodeViewState extends State<CodeView> {
 
   Widget _toolbar(AppPalette p) {
     final t = _tabActiva;
-    final ejecutable = t != null ? _lenguajeEjecutable(t.lenguaje) : null;
+    final settings = context.watch<SettingsProvider>();
+    final ejecutable = t != null ? lenguajeEjecutable(t.lenguaje) : null;
     final puedeEjecutar = ejecutable != null && !_ejecutando;
     return Container(
       height: 48,
@@ -1179,7 +2292,9 @@ class _CodeViewState extends State<CodeView> {
         color: p.surface,
         border: Border(top: BorderSide(color: p.borderSoft)),
       ),
-      child: Row(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
         children: [
           // BOTÓN EJECUTAR — terracota con sombra tintada en primary
           Container(
@@ -1257,18 +2372,94 @@ class _CodeViewState extends State<CodeView> {
             ),
           ),
           const SizedBox(width: 8),
-          // Mejorar con IA → abre la pestaña IA del panel inferior y
-          // dispara una consulta automática.
-          _btnSec(p, Icons.auto_awesome_rounded, 'Mejorar con IA',
-              AppColors.accent,
-              t != null && t.contenido.trim().isNotEmpty,
-              'Pregunta a la IA sobre este código (panel inferior)',
+          // Guardar — ubicado inmediatamente junto a Ejecutar para un flujo natural
+          _btnSec(
+            p,
+            Icons.save_outlined,
+            'Guardar',
+            p.text,
+            t != null,
+            'Guardar archivo (Ctrl+S)',
+            _guardar,
+          ),
+          const SizedBox(width: 8),
+          // Explicar a fondo con IA
+          _btnSec(
+            p,
+            Icons.psychology_outlined,
+            'Explicar',
+            p.primary,
+            (t != null && t.contenido.trim().isNotEmpty) || _carpetaRaiz != null,
+            (t != null && (t.lenguaje == 'markdown' || t.nombre.toLowerCase().endsWith('.md') || t.nombre.toLowerCase().endsWith('.txt')))
+                ? 'Analizar y resumir este documento o especificación técnica'
+                : 'Explicar el código o sistema paso a paso con andamiaje pedagógico',
+            () {
+              final esDoc = t != null && (t.lenguaje == 'markdown' ||
+                  t.nombre.toLowerCase().endsWith('.md') ||
+                  t.nombre.toLowerCase().endsWith('.txt'));
+              if (esDoc) {
+                _consultarIa(
+                  'Analiza en detalle este documento ("${t.nombre}"): resume su propósito, sus secciones o requerimientos principales y explica claramente su contenido pedagógico o técnico.',
+                );
+              } else {
+                _consultarIa(
+                  'Explica en detalle qué hace este código o sistema: propósito general, arquitectura lógica paso a paso y variables clave.',
+                );
+              }
+            },
+          ),
+          const SizedBox(width: 8),
+          // Detectar errores / bugs
+          _btnSec(
+            p,
+            Icons.bug_report_outlined,
+            'Detectar Errores',
+            AppColors.danger,
+            (t != null && t.contenido.trim().isNotEmpty) || _carpetaRaiz != null,
+            'Auditar posibles errores, excepciones y casos límite',
+            () {
+              _consultarIa(
+                'Audita a fondo este código buscando errores sintácticos, bugs lógicos, excepciones posibles (ZeroDivisionError, IndexError, etc.) y casos límite.',
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+          // Retos y Módulos Curriculares
+          _btnSec(
+            p,
+            Icons.school_outlined,
+            'Retos Curriculares',
+            p.primary,
+            true,
+            'Explorar retos prácticos del currículo (${CurriculumCatalog.nombreNivel(settings.nivelModulo)})',
+            () => _mostrarDialogoRetosCurriculares(context, p, settings),
+          ),
+          if (t != null && t.contenido != t.original) ...[
+            const SizedBox(width: 8),
+            _btnSec(
+              p,
+              Icons.difference_outlined,
+              'Ver Diff',
+              AppColors.info,
+              true,
+              'Comparar cambios sin guardar respecto al original',
               () {
-                setState(() => _panelActivo = _PanelInferior.ia);
-                _consultarIa('Revisa este código y sugiere mejoras concretas. '
-                    'Indica qué está bien, qué se puede mejorar y por qué.');
-              }),
-          const Spacer(),
+                DiffModal.mostrar(
+                  context,
+                  codigoOriginal: t.original,
+                  codigoNuevo: t.contenido,
+                  nombreArchivo: t.nombre,
+                  onAplicar: (nuevo) {
+                    setState(() {
+                      t.contenido = nuevo;
+                      t.controller(p).text = nuevo;
+                    });
+                  },
+                );
+              },
+            ),
+          ],
+          const SizedBox(width: 16),
           // Info derecha — agrupada con un separador vertical sutil.
           if (t != null) ...[
             Text(
@@ -1280,15 +2471,23 @@ class _CodeViewState extends State<CodeView> {
               ),
             ),
             const SizedBox(width: 10),
-            _badgeLenguaje(p, t.lenguaje),
+            BadgeLenguaje(lenguaje: t.lenguaje),
             const SizedBox(width: 10),
             Container(width: 1, height: 16, color: p.borderSoft),
-            const SizedBox(width: 4),
+            const SizedBox(width: 8),
           ],
-          // Guardar
-          _btnSec(p, Icons.save_outlined, 'Guardar', p.text,
-              t != null, 'Guardar archivo (Ctrl+S)', _guardar),
+          // Toggle del Panel Lateral de IA (Side-by-Side)
+          _btnSec(
+            p,
+            _panelIaLateral ? Icons.smart_toy_rounded : Icons.smart_toy_outlined,
+            'Asistente IA',
+            _panelIaLateral ? p.primary : p.subtle,
+            true,
+            _panelIaLateral ? 'Ocultar panel de IA' : 'Abrir panel de IA (Side-by-Side)',
+            () => setState(() => _panelIaLateral = !_panelIaLateral),
+          ),
         ],
+        ),
       ),
     );
   }
@@ -1325,24 +2524,6 @@ class _CodeViewState extends State<CodeView> {
     );
   }
 
-  Widget _badgeLenguaje(AppPalette p, String lang) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: p.surface2,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: p.borderSoft),
-      ),
-      child: Text(lang.toUpperCase(),
-          style: TextStyle(
-              fontSize: 10,
-              fontFamily: AppFonts.monoFallback.first,
-              fontFamilyFallback: AppFonts.monoFallback,
-              color: p.muted,
-              fontWeight: FontWeight.w600)),
-    );
-  }
-
   // ──────────── Panel inferior con tabs ────────────
 
   Widget _panelInferior(AppPalette p) {
@@ -1355,26 +2536,32 @@ class _CodeViewState extends State<CodeView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Tabs
+          // Tabs estilo VS Code
           Container(
-            height: 32,
-            color: p.surface,
-            child: Row(
+            height: 34,
+            decoration: BoxDecoration(
+              color: p.surface,
+              border: Border(bottom: BorderSide(color: p.borderSoft)),
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
               children: [
-                _tabPanel(p, _PanelInferior.output, 'Output', Icons.output),
-                _tabPanel(p, _PanelInferior.terminal, 'Terminal', Icons.terminal),
-                _tabPanel(p, _PanelInferior.problemas, 'Problemas',
-                    Icons.warning_amber_outlined,
+                _tabPanel(p, PanelInferior.terminal, 'TERMINAL', Icons.terminal_rounded),
+                _tabPanel(p, PanelInferior.output, 'SALIDA', Icons.output_rounded),
+                _tabPanel(p, PanelInferior.problemas, 'PROBLEMAS',
+                    Icons.warning_amber_rounded,
                     contador: _problemas.length),
-                _tabPanel(p, _PanelInferior.ia, 'Asistente IA',
+                _tabPanel(p, PanelInferior.ia, 'Asistente IA',
                     Icons.smart_toy_outlined),
-                const Spacer(),
-                if (_output != null && _panelActivo == _PanelInferior.output)
+                const SizedBox(width: 8),
+                if (_output != null && _panelActivo == PanelInferior.output)
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
-                    child: _badgeResultado(p, _output!),
+                    child: BadgeResultado(resultado: _output!),
                   ),
               ],
+              ),
             ),
           ),
           Divider(height: 1, color: p.borderSoft),
@@ -1384,13 +2571,13 @@ class _CodeViewState extends State<CodeView> {
     );
   }
 
-  Widget _tabPanel(AppPalette p, _PanelInferior tab, String label, IconData icono,
+  Widget _tabPanel(AppPalette p, PanelInferior tab, String label, IconData icono,
       {int contador = 0}) {
     final activa = _panelActivo == tab;
     return InkWell(
       onTap: () => setState(() => _panelActivo = tab),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           border: activa
               ? Border(bottom: BorderSide(color: p.primary, width: 2))
@@ -1403,15 +2590,16 @@ class _CodeViewState extends State<CodeView> {
             const SizedBox(width: 5),
             Text(label,
                 style: TextStyle(
-                    fontSize: 11.5,
+                    fontSize: 11,
+                    letterSpacing: 0.5,
                     color: activa ? p.text : p.muted,
-                    fontWeight: activa ? FontWeight.w600 : FontWeight.w400)),
+                    fontWeight: activa ? FontWeight.w700 : FontWeight.w500)),
             if (contador > 0) ...[
               const SizedBox(width: 5),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 0),
                 decoration: BoxDecoration(
-                  color: AppColors.warning,
+                  color: AppColors.danger,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text('$contador',
@@ -1429,9 +2617,8 @@ class _CodeViewState extends State<CodeView> {
 
   Widget _contenidoPanelInferior(AppPalette p) {
     switch (_panelActivo) {
-      case _PanelInferior.output:
+      case PanelInferior.output:
         if (_output == null && !_ejecutando) {
-          // Empty state limpio, sin emoji ASCII ni paréntesis tutoriales.
           return Container(
             color: p.codeBg,
             alignment: Alignment.center,
@@ -1439,13 +2626,16 @@ class _CodeViewState extends State<CodeView> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(Icons.play_circle_outline_rounded,
-                    size: 14, color: p.subtle),
+                    size: 16, color: p.subtle),
                 const SizedBox(width: 8),
-                Text(
-                  'La salida del programa aparecerá aquí',
-                  style: TextStyle(
-                    fontSize: 12, color: p.subtle,
-                    fontStyle: FontStyle.italic,
+                Flexible(
+                  child: Text(
+                    'Presiona "Ejecutar" (o F5) para correr el código y ver la salida aquí',
+                    softWrap: true,
+                    style: TextStyle(
+                      fontSize: 12, color: p.subtle,
+                      fontStyle: FontStyle.italic,
+                    ),
                   ),
                 ),
               ],
@@ -1454,158 +2644,867 @@ class _CodeViewState extends State<CodeView> {
         }
         return Container(
           color: p.codeBg,
-          padding: const EdgeInsets.all(12),
-          child: SingleChildScrollView(
-            child: SelectableText(
-              _output == null
-                  ? 'Ejecutando código en sandbox…'
-                  : _construirOutput(_output!),
-              style: TextStyle(
-                fontSize: 12.5,
-                height: 1.5,
-                fontFamily: AppFonts.monoFallback.first,
-                fontFamilyFallback: AppFonts.monoFallback,
-                color: p.codeText,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                height: 30,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: p.surface2.withValues(alpha: 0.3),
+                  border: Border(bottom: BorderSide(color: p.borderSoft.withValues(alpha: 0.5))),
+                ),
+                child: Row(
+                  children: [
+                    Text(
+                      'Registro de Ejecución',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: p.muted),
+                    ),
+                    const Spacer(),
+                    Tooltip(
+                      message: 'Limpiar salida',
+                      child: InkWell(
+                        onTap: () => setState(() => _output = null),
+                        borderRadius: BorderRadius.circular(4),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Icon(Icons.delete_outline_rounded, size: 14, color: p.muted),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
+              if (_output != null && _output!.stderr.contains('EOFError'))
+                Container(
+                  margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.info.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.info.withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.keyboard_outlined, size: 16, color: AppColors.info),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Tu programa solicita entrada por teclado (input()). Puedes ejecutar con valores de prueba o interactuar en la terminal.',
+                          style: TextStyle(fontSize: 11.5),
+                        ),
+                      ),
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          foregroundColor: p.primary,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        icon: const Icon(Icons.auto_fix_high_rounded, size: 14),
+                        label: const Text('Usar valores de prueba', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        onPressed: () {
+                          _consultarIa(
+                            'Reemplaza las llamadas input() del archivo actual por variables fijas con números de prueba (ej: numero1 = 10, numero2 = 5) para ejecutar directamente sin consola. Devuelve el código completo actualizado.',
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 4),
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.info,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        icon: const Icon(Icons.terminal_rounded, size: 14),
+                        label: const Text('Ir a TERMINAL', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        onPressed: () => setState(() => _panelActivo = PanelInferior.terminal),
+                      ),
+                    ],
+                  ),
+                ),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(12),
+                  child: SelectableText(
+                    _output == null
+                        ? 'Ejecutando código...'
+                        : _construirOutput(_output!),
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.5,
+                      fontFamily: AppFonts.monoFallback.first,
+                      fontFamilyFallback: AppFonts.monoFallback,
+                      color: p.codeText,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         );
-      case _PanelInferior.terminal:
-        // Terminal interactiva real: el usuario puede ejecutar pip install,
-        // python archivo.py, ls, cd, etc. Arranca en la carpeta del archivo
-        // activo (o en la carpeta raíz del proyecto si hay una abierta).
+      case PanelInferior.terminal:
         return TerminalView(
           key: _terminalKey,
           cwdInicial: _cwdParaTerminal,
           compacta: true,
+          onIrASalida: () => setState(() => _panelActivo = PanelInferior.output),
+          onIrAProblemas: () => setState(() => _panelActivo = PanelInferior.problemas),
+          contadorProblemas: _problemas.length,
         );
-      case _PanelInferior.problemas:
-        return Center(
-          child: Text(
-            _problemas.isEmpty
-                ? 'Sin problemas detectados.\n(Linting en tiempo real — próximamente)'
-                : _problemas.join('\n'),
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: p.muted),
+      case PanelInferior.problemas:
+        if (_problemas.isEmpty) {
+          return Container(
+            color: p.codeBg,
+            alignment: Alignment.center,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.check_circle_outline_rounded, size: 30, color: Color(0xFF4ADE80)),
+                const SizedBox(height: 8),
+                Text(
+                  'No se han detectado problemas en el archivo',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: p.text),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Los errores sintácticos o excepciones de ejecución se mostrarán aquí.',
+                  style: TextStyle(fontSize: 11.5, color: p.subtle),
+                ),
+              ],
+            ),
+          );
+        }
+        return Container(
+          color: p.codeBg,
+          child: ListView.separated(
+            padding: const EdgeInsets.all(12),
+            itemCount: _problemas.length,
+            separatorBuilder: (_, __) => Divider(height: 1, color: p.borderSoft),
+            itemBuilder: (context, idx) {
+              final prob = _problemas[idx];
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.error_outline_rounded, size: 15, color: AppColors.danger),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SelectableText(
+                        prob,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontFamily: AppFonts.monoFallback.first,
+                          fontFamilyFallback: AppFonts.monoFallback,
+                          color: p.codeText,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    InkWell(
+                      onTap: () {
+                        final esEof = prob.contains('EOFError') || prob.contains('input');
+                        final instruccion = esEof
+                            ? 'Corrige el error en el archivo actual: ocurrió un EOFError porque input() no tiene terminal interactiva. Reemplaza los input() por variables directas con valores numéricos de ejemplo para que el programa se ejecute directamente con éxito sin pedir entrada por consola. Devuelve el código completo actualizado.'
+                            : 'Corrige este error en el archivo actual y explica brevemente el cambio. Devuelve el código completo funcional:\n`$prob`';
+                        _consultarIa(instruccion);
+                      },
+                      borderRadius: BorderRadius.circular(5),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.danger.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.auto_awesome, size: 11, color: AppColors.danger),
+                            SizedBox(width: 4),
+                            Text(
+                              'Corregir con IA',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.danger,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
         );
-      case _PanelInferior.ia:
-        return _contenidoPanelIa(p);
+      case PanelInferior.ia:
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.auto_awesome_rounded, size: 22, color: p.primary),
+              const SizedBox(height: 8),
+              Text(
+                'El Asistente IA está activo en el panel lateral derecho',
+                style: TextStyle(fontSize: 12, color: p.text, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Interactúa, genera y modifica código con andamiaje o directo desde allí.',
+                style: TextStyle(fontSize: 11, color: p.muted),
+              ),
+              const SizedBox(height: 10),
+              if (!_panelIaLateral)
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(backgroundColor: p.primary),
+                  icon: const Icon(Icons.open_in_new_rounded, size: 13),
+                  label: const Text('Abrir Panel Lateral de IA', style: TextStyle(fontSize: 11)),
+                  onPressed: () => setState(() => _panelIaLateral = true),
+                ),
+            ],
+          ),
+        );
     }
   }
 
-  /// Panel del Asistente IA — ahora vive abajo, no en un sidebar lateral.
-  Widget _contenidoPanelIa(AppPalette p) {
+  Widget _panelIaLateralWidget(AppPalette p) {
     final t = _tabActiva;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Cuerpo (sugerencias + respuesta)
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+    final settings = context.watch<SettingsProvider>();
+    return Container(
+      color: p.surface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header del Panel Lateral
+          Container(
+            height: 38,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: p.surface2.withValues(alpha: 0.4),
+              border: Border(bottom: BorderSide(color: p.borderSoft)),
+            ),
+            child: Row(
               children: [
-                Text(
-                  t == null
-                      ? 'Abre un archivo para que el asistente lo vea como contexto.'
-                      : 'Asistente con contexto: ${t.nombre} · ${t.lenguaje}',
-                  style: TextStyle(
-                      fontSize: 11.5, color: p.muted, height: 1.5),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 5,
-                  runSpacing: 5,
-                  children: [
-                    _chipIa(p, '¿Qué hace este código?', _consultarIa),
-                    _chipIa(p, 'Encuentra bugs', _consultarIa),
-                    _chipIa(p, 'Refactoriza esto', _consultarIa),
-                    _chipIa(p, 'Añade docstrings', _consultarIa),
-                    _chipIa(p, 'Optimiza el rendimiento', _consultarIa),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                if (_iaCargando)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: SizedBox(
-                        height: 18, width: 18,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: p.primary),
-                      ),
-                    ),
-                  )
-                else if (_iaUltimaRespuesta != null)
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: p.surface2,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: SelectableText(
-                      _iaUltimaRespuesta!,
-                      style: TextStyle(
-                          fontSize: 12, color: p.text, height: 1.5),
+                Icon(Icons.auto_awesome_rounded, size: 14, color: p.primary),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    'Asistente IA', maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: p.text,
+                      letterSpacing: 0.2,
                     ),
                   ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: settings.esBloqueadoPostTest
+                        ? AppColors.danger.withValues(alpha: 0.15)
+                        : p.surface3,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    settings.esBloqueadoPostTest
+                        ? '🔒 Post-Test'
+                        : (settings.esSinAcompanamiento ? 'Directo' : 'Acompañamiento'),
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      color: settings.esBloqueadoPostTest ? AppColors.danger : p.subtle,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (_iaHistorial.isNotEmpty)
+                  _miniIcon(p, Icons.delete_sweep_outlined, 'Limpiar historial de chat', () {
+                    setState(() {
+                      _iaHistorial.clear();
+                      _iaConversacionId = null;
+                      _iaCambioPendiente = false;
+                    });
+                  }),
+                const SizedBox(width: 2),
+                _miniIcon(p, Icons.close_rounded, 'Ocultar panel', () {
+                  setState(() => _panelIaLateral = false);
+                }),
               ],
             ),
           ),
-        ),
-        Divider(height: 1, color: p.borderSoft),
-        // Input para preguntar
-        Padding(
-          padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _iaCtrl,
-                  style: TextStyle(fontSize: 12.5, color: p.text),
-                  decoration: InputDecoration(
-                    hintText: 'Pregunta al asistente sobre el código...',
-                    hintStyle:
-                        TextStyle(fontSize: 12.5, color: p.subtle),
-                    filled: true,
-                    fillColor: p.surface2,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 9),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(6),
-                      borderSide: BorderSide(color: p.borderSoft),
+          // Sub-header de contexto de archivo
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            color: p.surface2.withValues(alpha: 0.2),
+            child: Row(
+              children: [
+                Icon(Icons.code_rounded, size: 12, color: p.subtle),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    t != null
+                        ? '${t.nombre} (${t.lenguaje})'
+                        : (_carpetaRaiz != null
+                            ? 'Proyecto: ${_carpetaRaiz!.split(Platform.pathSeparator).last}'
+                            : 'Sin archivo activo'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: p.muted,
+                      fontFamily: AppFonts.monoFallback.first,
                     ),
                   ),
-                  onSubmitted: (v) {
-                    _consultarIa(v);
-                    _iaCtrl.clear();
-                  },
+                ),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: p.borderSoft),
+          // Banner de Reto Curricular si la pestaña activa tiene una lección
+          if (t?.leccionCurricular != null && settings.esConAcompanamiento) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              color: p.primary.withValues(alpha: 0.08),
+              child: Row(
+                children: [
+                  Icon(Icons.school_rounded, size: 14, color: p.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Reto ${t!.leccionCurricular!.id}: ${t.leccionCurricular!.titulo}',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.bold,
+                            color: p.primary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          t.leccionCurricular!.descripcionPedagogica,
+                          style: TextStyle(fontSize: 10, color: p.muted),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  InkWell(
+                    onTap: () => _mostrarPistasCurriculares(t.leccionCurricular!),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: p.surface2,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: p.borderSoft),
+                      ),
+                      child: Text(
+                        '💡 Pistas',
+                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: p.text),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Divider(height: 1, color: p.borderSoft),
+          ],
+          if (settings.esBloqueadoPostTest)
+            Expanded(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.danger.withValues(alpha: 0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.lock_clock_rounded, size: 36, color: AppColors.danger),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Modo Evaluación Post-Test',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: p.text),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'El asistente de inteligencia artificial está temporalmente deshabilitado en esta fase evaluativa.\n\nPor favor, resuelve tus algoritmos y ejercicios de programación directamente en el editor. El motor de ejecución (F5 / ▶) y la terminal interactiva continúan funcionando.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12, color: p.muted, height: 1.5),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(width: 6),
-              IconButton(
-                padding: EdgeInsets.zero,
-                constraints:
-                    const BoxConstraints(minWidth: 32, minHeight: 32),
-                onPressed: _iaCargando
-                    ? null
-                    : () {
-                        _consultarIa(_iaCtrl.text);
-                        _iaCtrl.clear();
+            )
+          else ...[
+            // Lista de Mensajes / Estado inicial
+            Expanded(
+              child: _iaHistorial.isEmpty
+                  ? _emptyStateIaLateral(p, t)
+                  : ListView.builder(
+                      controller: _iaScrollCtrl,
+                      padding: const EdgeInsets.all(12),
+                      itemCount: _iaHistorial.length + (_iaCargando ? 1 : 0),
+                      itemBuilder: (context, idx) {
+                        if (idx == _iaHistorial.length) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  height: 14,
+                                  width: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: p.primary),
+                                ),
+                                const SizedBox(width: 8),
+                                Text('Generando respuesta...',
+                                    style: TextStyle(fontSize: 11.5, color: p.muted)),
+                              ],
+                            ),
+                          );
+                        }
+                        final msg = _iaHistorial[idx];
+                        return _itemMensajeIaLateral(p, msg, t);
                       },
-                icon: Icon(Icons.send, size: 16, color: p.primary),
+                    ),
+            ),
+            Divider(height: 1, color: p.borderSoft),
+            // Input inferior de instrucciones
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _iaCtrl,
+                      key: const ValueKey('editor-pregunta'),
+                      focusNode: _iaFocusNode,
+                      minLines: 1,
+                      maxLines: 4,
+                      style: TextStyle(fontSize: 12, color: p.text),
+                      decoration: InputDecoration(
+                        hintText: t != null
+                            ? 'Instruye a la IA sobre "${t.nombre}"...'
+                            : 'Instruye a la IA sobre tu código...',
+                        hintStyle: TextStyle(fontSize: 11.5, color: p.subtle),
+                        filled: true,
+                        fillColor: p.surface2,
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(6),
+                          borderSide: BorderSide(color: p.borderSoft),
+                        ),
+                      ),
+                      onSubmitted: (v) {
+                        if (v.trim().isNotEmpty) {
+                          _consultarIa(v);
+                          _iaCtrl.clear();
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    onPressed: _iaCargando
+                        ? null
+                        : () {
+                            if (_iaCtrl.text.trim().isNotEmpty) {
+                              _consultarIa(_iaCtrl.text);
+                              _iaCtrl.clear();
+                            }
+                          },
+                    icon: Icon(Icons.send_rounded, size: 16, color: p.primary),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
-      ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 
-  String _construirOutput(_ResultadoEjecucion o) {
+  Widget _emptyStateIaLateral(AppPalette p, TabArchivo? t) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Icon(Icons.terminal_rounded, size: 28, color: p.primary),
+          const SizedBox(height: 10),
+          Text(
+            'Asistente de Código y Algoritmos',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: p.text),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Capacitado para generar código, analizar arquitectura, explicar paso a paso y detectar errores.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 11.5, color: p.muted, height: 1.4),
+          ),
+          const SizedBox(height: 16),
+          if (t?.leccionCurricular != null) ...[
+            () {
+              final lec = t!.leccionCurricular!;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'ANDAMIAJE PEDAGÓGICO DEL RETO',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.6,
+                      color: p.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _chipAccionLateral(
+                    p,
+                    Icons.lightbulb_outline_rounded,
+                    'Pedir pista pedagógica sin la respuesta directa',
+                    () => _consultarIa(
+                      'Estoy resolviendo el reto curricular "${lec.titulo}". '
+                      'Analiza mi código actual y proporciona una pista didáctica basada en andamiaje '
+                      'para guiar mi razonamiento lógico, sin revelarme el código completo final.',
+                    ),
+                    colorAcento: AppColors.accent,
+                  ),
+                  const SizedBox(height: 6),
+                  _chipAccionLateral(
+                    p,
+                    Icons.quiz_outlined,
+                    'Pregunta de autoevaluación conceptual',
+                    () => _consultarIa(
+                      'Formula una pregunta socrática o de autoevaluación pedagógica basada en: '
+                      '"${lec.preguntaAutoevaluacion}", ayudándome a razonar sobre mi código actual.',
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  _chipAccionLateral(
+                    p,
+                    Icons.task_alt_rounded,
+                    'Evaluar cumplimiento de objetivos del reto',
+                    () => _consultarIa(
+                      'Audita mi código frente a los objetivos pedagógicos del reto "${lec.titulo}". '
+                      'Indica si he cumplido los requisitos esperados y sugiere mejoras de estilo pythónico.',
+                    ),
+                    colorAcento: AppColors.success,
+                  ),
+                  const SizedBox(height: 14),
+                ],
+              );
+            }(),
+          ],
+          Text(
+            'ACCIONES RÁPIDAS',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+              color: p.subtle,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _chipAccionLateral(
+            p,
+            Icons.flash_on_rounded,
+            'Generar nueva función o clase',
+            () {
+              _iaCtrl.text = 'Genera una función o clase para: ';
+              _iaCtrl.selection = TextSelection.fromPosition(TextPosition(offset: _iaCtrl.text.length));
+              _iaFocusNode.requestFocus();
+            },
+          ),
+          const SizedBox(height: 6),
+          _chipAccionLateral(
+            p,
+            Icons.psychology_outlined,
+            'Explicar este archivo a fondo',
+            () {
+              final tCur = _tabActiva;
+              final esDoc = tCur != null && (tCur.lenguaje == 'markdown' ||
+                  tCur.nombre.toLowerCase().endsWith('.md') ||
+                  tCur.nombre.toLowerCase().endsWith('.txt'));
+              if (esDoc) {
+                _consultarIa(
+                  'Analiza en detalle este documento ("${tCur.nombre}"): resume su propósito, sus secciones o requerimientos principales y explica claramente su contenido pedagógico o técnico.',
+                );
+              } else {
+                _consultarIa(
+                  'Explica en detalle qué hace este código o sistema: propósito general, arquitectura lógica paso a paso y variables clave.',
+                );
+              }
+            },
+          ),
+          const SizedBox(height: 6),
+          _chipAccionLateral(
+            p,
+            Icons.bug_report_outlined,
+            'Buscar bugs y casos límite',
+            () => _consultarIa('Audita a fondo este código buscando errores sintácticos, bugs lógicos, excepciones posibles y casos límite.'),
+          ),
+          const SizedBox(height: 6),
+          _chipAccionLateral(
+            p,
+            Icons.account_tree_outlined,
+            'Auditar arquitectura de proyecto (AST)',
+            () => _ejecutarAuditoriaAst(),
+          ),
+          const SizedBox(height: 6),
+          _chipAccionLateral(
+            p,
+            Icons.auto_awesome_rounded,
+            'Optimizar y limpiar código',
+            () => _consultarIa('Propón una versión más limpia, eficiente y pythónica de este código.'),
+          ),
+          if (_output != null && _output!.stderr.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _chipAccionLateral(
+              p,
+              Icons.warning_amber_rounded,
+              'Analizar error de ejecución reciente',
+              () => _consultarIa('Analiza el error que arrojó la última ejecución y propón la corrección exacta.'),
+              colorAcento: AppColors.danger,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _chipAccionLateral(AppPalette p, IconData icono, String texto, VoidCallback onTap, {Color? colorAcento}) {
+    final color = colorAcento ?? p.primary;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: p.surface2,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: p.borderSoft),
+        ),
+        child: Row(
+          children: [
+            Icon(icono, size: 14, color: color),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                texto,
+                style: TextStyle(fontSize: 11.5, color: p.text, fontWeight: FontWeight.w500),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _itemMensajeIaLateral(AppPalette p, MensajeEditorIa msg, TabArchivo? t) {
+    if (msg.esUsuario) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 380),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: p.primary.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: p.primary.withValues(alpha: 0.3)),
+            ),
+            child: Text(
+              msg.texto,
+              style: TextStyle(fontSize: 12, color: p.text, height: 1.4),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Mensaje de la IA
+    final codigo = msg.codigoExtraido;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.auto_awesome_rounded, size: 12, color: p.primary),
+              const SizedBox(width: 5),
+              Text(
+                'Asistente',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: p.primary),
+              ),
+              const Spacer(),
+              Tooltip(
+                message: 'Copiar respuesta completa',
+                child: InkWell(
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: msg.texto));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Respuesta copiada al portapapeles')),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(Icons.copy_rounded, size: 13, color: p.subtle),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: p.surface2,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: p.borderSoft),
+            ),
+            child: MarkdownBody(
+              data: msg.texto,
+              selectable: true,
+              styleSheet: MarkdownStyleSheet(
+                p: TextStyle(fontSize: 12, color: p.text, height: 1.45),
+                h1: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: p.text),
+                h2: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: p.text),
+                h3: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: p.primary),
+                code: TextStyle(
+                  fontFamily: AppFonts.monoFallback.first,
+                  fontSize: 11,
+                  backgroundColor: p.surface3,
+                  color: p.primary,
+                ),
+                codeblockDecoration: BoxDecoration(
+                  color: p.surface,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: p.borderSoft),
+                ),
+              ),
+            ),
+          ),
+          if (extraerArchivosPropuestos(msg.texto).isNotEmpty) ...[
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              onPressed: () => _crearEstructuraDesdeIa(msg.texto),
+              icon: const Icon(Icons.create_new_folder_outlined, size: 16),
+              label: Text('Crear estructura (${extraerArchivosPropuestos(msg.texto).length} archivos)'),
+            ),
+          ],
+          if (codigo != null && codigo.trim().isNotEmpty &&
+              extraerArchivosPropuestos(msg.texto).isEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: p.surface2.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: p.borderSoft),
+              ),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.success,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    icon: const Icon(Icons.note_add_outlined, size: 13),
+                    label: const Text('Crear como archivo', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                    onPressed: () => _crearArchivoDesdeIa(codigo),
+                  ),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: p.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    icon: const Icon(Icons.check_circle_outline_rounded, size: 13),
+                    label: const Text('Reemplazar archivo', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                    onPressed: () => _reemplazarTodoElArchivo(codigo),
+                  ),
+                  Tooltip(
+                    message: 'Inserta este fragmento exactamente donde esté parpadeando el cursor en el editor',
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: p.text,
+                        side: BorderSide(color: p.borderSoft),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      icon: const Icon(Icons.input_rounded, size: 13),
+                      label: const Text('Pegar en posición del cursor', style: TextStyle(fontSize: 11)),
+                      onPressed: () => _insertarCodigoEnCursor(codigo),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.info,
+                      side: BorderSide(color: AppColors.info.withValues(alpha: 0.4)),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    icon: const Icon(Icons.difference_rounded, size: 13),
+                    label: const Text('Ver Diff', style: TextStyle(fontSize: 11)),
+                    onPressed: () {
+                      DiffModal.mostrar(
+                        context,
+                        codigoOriginal: t?.contenido ?? '',
+                        codigoNuevo: codigo,
+                        nombreArchivo: t?.nombre ?? 'codigo.py',
+                        onAplicar: (nuevo) {
+                          if (t != null) {
+                            setState(() {
+                              t.contenido = nuevo;
+                              t.controller(p).text = nuevo;
+                            });
+                          }
+                        },
+                      );
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.copy_rounded, size: 14),
+                    tooltip: 'Copiar código',
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    padding: EdgeInsets.zero,
+                    onPressed: () => _copiarCodigo(codigo),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _construirOutput(ResultadoEjecucion o) {
     final partes = <String>[];
     if (o.stdout.isNotEmpty) partes.add(o.stdout);
     if (o.stderr.isNotEmpty) {
@@ -1617,426 +3516,17 @@ class _CodeViewState extends State<CodeView> {
     return partes.join('');
   }
 
-  Widget _badgeResultado(AppPalette p, _ResultadoEjecucion o) {
-    final ok = o.exitCode == 0 && !o.timeout;
-    final color = o.timeout
-        ? AppColors.warning
-        : (ok ? AppColors.success : AppColors.danger);
-    final icono = o.timeout
-        ? Icons.timer_outlined
-        : (ok ? Icons.check_circle_outline : Icons.error_outline);
-    final texto = o.timeout
-        ? 'timeout · ${o.duracion.toStringAsFixed(2)}s'
-        : 'exit ${o.exitCode} · ${o.duracion.toStringAsFixed(2)}s';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icono, size: 11, color: color),
-          const SizedBox(width: 4),
-          Text(texto,
-              style: TextStyle(
-                  fontSize: 10.5,
-                  color: color,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: AppFonts.monoFallback.first,
-                  fontFamilyFallback: AppFonts.monoFallback)),
-        ],
-      ),
-    );
-  }
-
-  // El panel IA antiguamente lateral ahora vive como tab del panel
-  // inferior. Ver _contenidoPanelIa().
-
-  Widget _chipIa(AppPalette p, String label, void Function(String) onTap) {
-    return InkWell(
-      onTap: () => onTap(label),
-      borderRadius: BorderRadius.circular(99),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-        decoration: BoxDecoration(
-          color: p.surface2,
-          borderRadius: BorderRadius.circular(99),
-          border: Border.all(color: p.borderSoft),
-        ),
-        child: Text(label,
-            style: TextStyle(fontSize: 10.5, color: p.muted)),
-      ),
-    );
-  }
-
-  // ──────────── Estado vacío ────────────
-
-  Widget _vacio(AppPalette p) {
-    return Container(
-      color: p.bg,
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  Container(
-                    width: 92, height: 92,
-                    decoration: BoxDecoration(
-                      color: p.primary.withValues(alpha: 0.06),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  Container(
-                    width: 62, height: 62,
-                    decoration: BoxDecoration(
-                      color: p.primary.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: p.primary.withValues(alpha: 0.2),
-                      ),
-                    ),
-                    child: Icon(Icons.code_rounded,
-                        size: 26, color: p.primary),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 22),
-              Text(
-                'Sin archivos abiertos',
-                style: TextStyle(
-                  fontFamily: AppFonts.serifFallback.first,
-                  fontSize: 22, fontWeight: FontWeight.w600,
-                  color: p.text, letterSpacing: -0.3,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Abre un archivo desde el explorador o crea uno nuevo.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13.5, color: p.muted, height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 28),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  FilledButton.icon(
-                    onPressed: _abrirArchivos,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: p.primary,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18, vertical: 11,
-                      ),
-                      textStyle: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    icon: const Icon(Icons.folder_open_rounded, size: 14),
-                    label: const Text('Abrir archivo'),
-                  ),
-                  const SizedBox(width: 10),
-                  OutlinedButton.icon(
-                    onPressed: _nuevoArchivo,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: p.text,
-                      side: BorderSide(color: p.borderSoft),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18, vertical: 11,
-                      ),
-                      textStyle: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    icon: const Icon(Icons.add_rounded, size: 14),
-                    label: const Text('Nuevo archivo'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ──────────── Helpers ────────────
-
-  IconData _iconoLenguaje(String l) => switch (l) {
-        'python' => Icons.terminal,
-        'dart' => Icons.flutter_dash,
-        'javascript' || 'typescript' => Icons.javascript,
-        'json' || 'yaml' => Icons.data_object,
-        'markdown' => Icons.article_outlined,
-        'html' || 'css' => Icons.web,
-        _ => Icons.description_outlined,
-      };
-
-  String _lenguajeDeExtension(String ext) => switch (ext.toLowerCase()) {
-        'py' => 'python',
-        'dart' => 'dart',
-        'js' || 'mjs' || 'cjs' => 'javascript',
-        'jsx' => 'javascript',
-        'ts' || 'tsx' => 'typescript',
-        'json' => 'json',
-        'md' => 'markdown',
-        'yaml' || 'yml' => 'yaml',
-        'java' => 'java',
-        'kt' => 'kotlin',
-        'rs' => 'rust',
-        'go' => 'go',
-        'c' || 'h' => 'c',
-        'cpp' || 'hpp' || 'cc' => 'cpp',
-        'cs' => 'csharp',
-        'rb' => 'ruby',
-        'php' => 'php',
-        'sh' => 'bash',
-        'html' => 'html',
-        'css' => 'css',
-        _ => 'texto',
-      };
-
-  /// Devuelve el nombre del runtime para sandbox o null si no es ejecutable.
-  String? _lenguajeEjecutable(String l) => switch (l) {
-        'python' => 'python',
-        'javascript' => 'javascript',
-        'typescript' => 'javascript', // Node los acepta si están transpilados
-        'bash' || 'shell' => 'bash',
-        _ => null,
-      };
-}
-
-// ════════════════════════════════════════════════════════════════════
-// CodeController — TextEditingController que aplica syntax highlight
-// INLINE vía buildTextSpan. Esto elimina el bug de overlays
-// desalineados que causaba el efecto "texto rayado".
-// ════════════════════════════════════════════════════════════════════
-
-class _CodeController extends TextEditingController {
-  String lenguaje;
-  AppPalette palette;
-
-  _CodeController({
-    required String text,
-    required this.lenguaje,
-    required this.palette,
-  }) : super(text: text);
-
-  @override
-  TextSpan buildTextSpan({
-    required BuildContext context,
-    TextStyle? style,
-    required bool withComposing,
-  }) {
-    if (text.isEmpty) {
-      return TextSpan(style: style, text: '');
+  String? _extraerCodigoDeMarkdown(String texto) {
+    final matches = RegExp(r'```(?:\w+)?\r?\n([\s\S]*?)```').allMatches(texto);
+    if (matches.isEmpty) return null;
+    String? mejorBloque;
+    for (final m in matches) {
+      final codigo = m.group(1)?.trim();
+      if (codigo == null || codigo.isEmpty) continue;
+      if (mejorBloque == null || codigo.length > mejorBloque.length) {
+        mejorBloque = codigo;
+      }
     }
-    final spans = SyntaxHighlighter.highlight(text, lenguaje, palette);
-    return TextSpan(style: style, children: spans);
+    return mejorBloque;
   }
-}
-
-// ════════════════════════════════════════════════════════════════════
-// Modelos internos
-// ════════════════════════════════════════════════════════════════════
-
-class _TabArchivo {
-  String nombre;
-  String? ruta;
-  String contenido;
-  String original;
-  String lenguaje;
-  _CodeController? _controller;
-
-  _TabArchivo({
-    required this.nombre,
-    required this.ruta,
-    required this.contenido,
-    required this.original,
-    required this.lenguaje,
-    AppPalette? palette,
-  }) {
-    if (palette != null) {
-      _controller = _CodeController(
-        text: contenido, lenguaje: lenguaje, palette: palette,
-      );
-    }
-  }
-
-  /// El controller se inicializa lazy al primer build con la paleta real.
-  _CodeController controller([AppPalette? p]) {
-    if (_controller == null) {
-      assert(p != null,
-          'Se requiere paleta al primer acceso al controller');
-      _controller = _CodeController(
-        text: contenido, lenguaje: lenguaje, palette: p!,
-      );
-    }
-    return _controller!;
-  }
-
-  void dispose() => _controller?.dispose();
-}
-
-class _ResultadoEjecucion {
-  final String stdout;
-  final String stderr;
-  final int exitCode;
-  final double duracion;
-  final bool timeout;
-  final String lenguaje;
-  _ResultadoEjecucion({
-    required this.stdout, required this.stderr,
-    required this.exitCode, required this.duracion,
-    required this.timeout, required this.lenguaje,
-  });
-}
-
-enum _PanelInferior { output, terminal, problemas, ia }
-
-class _GuardarIntent extends Intent { const _GuardarIntent(); }
-class _EjecutarIntent extends Intent { const _EjecutarIntent(); }
-
-// ════════════════════════════════════════════════════════════════════
-// Divisores arrastrables (resize bars)
-//
-// Estos dos widgets son los gripper que el usuario arrastra para
-// cambiar el tamaño de los paneles. Disparan un callback `onDrag`
-// con el delta en píxeles cada vez que el cursor se mueve. El widget
-// padre se encarga de actualizar el state con clamp a min/max.
-// ════════════════════════════════════════════════════════════════════
-
-class _DivisorHorizontal extends StatefulWidget {
-  /// `delta` positivo = arrastró hacia abajo (panel inferior se hace más chico).
-  final ValueChanged<double> onDrag;
-  const _DivisorHorizontal({required this.onDrag});
-
-  @override
-  State<_DivisorHorizontal> createState() => _DivisorHorizontalState();
-}
-
-class _DivisorHorizontalState extends State<_DivisorHorizontal> {
-  bool _hover = false;
-  bool _arrastrando = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = AppPalette.of(context);
-    return MouseRegion(
-      cursor: SystemMouseCursors.resizeRow,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onVerticalDragStart: (_) => setState(() => _arrastrando = true),
-        onVerticalDragEnd: (_) => setState(() => _arrastrando = false),
-        // delta.dy positivo = movió hacia abajo → panel inferior achica
-        // (porque su alto = altoTotal - posiciónDivisor). Invertimos signo
-        // para que el caller reciba "cuánto crece el panel inferior".
-        onVerticalDragUpdate: (d) => widget.onDrag(d.delta.dy),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          height: 4,
-          color: (_hover || _arrastrando)
-              ? p.primary.withValues(alpha: 0.5)
-              : p.borderSoft,
-        ),
-      ),
-    );
-  }
-}
-
-class _DivisorVertical extends StatefulWidget {
-  /// `delta` positivo = arrastró hacia la derecha (panel derecho se hace más chico).
-  final ValueChanged<double> onDrag;
-  const _DivisorVertical({required this.onDrag});
-
-  @override
-  State<_DivisorVertical> createState() => _DivisorVerticalState();
-}
-
-class _DivisorVerticalState extends State<_DivisorVertical> {
-  bool _hover = false;
-  bool _arrastrando = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = AppPalette.of(context);
-    return MouseRegion(
-      cursor: SystemMouseCursors.resizeColumn,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragStart: (_) => setState(() => _arrastrando = true),
-        onHorizontalDragEnd: (_) => setState(() => _arrastrando = false),
-        onHorizontalDragUpdate: (d) => widget.onDrag(d.delta.dx),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          width: 4,
-          color: (_hover || _arrastrando)
-              ? p.primary.withValues(alpha: 0.5)
-              : p.borderSoft,
-        ),
-      ),
-    );
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════
-// Árbol de archivos del proyecto (tipo "Open Folder" de VS Code).
-// `_NodoArchivo` representa cada entrada (archivo o carpeta).
-// `_NodoCarpeta` es la raíz de un árbol.
-// ════════════════════════════════════════════════════════════════════
-
-class _NodoArchivo {
-  final String nombre;
-  final String ruta;
-  final bool esCarpeta;
-  final String? lenguaje;   // solo archivos
-  bool expandido;            // solo carpetas
-  List<_NodoArchivo>? hijos; // null = aún no se cargaron (lazy)
-
-  _NodoArchivo._({
-    required this.nombre,
-    required this.ruta,
-    required this.esCarpeta,
-    this.lenguaje,
-    this.expandido = false,
-    this.hijos,
-  });
-
-  factory _NodoArchivo.archivo({
-    required String nombre,
-    required String ruta,
-    required String lenguaje,
-  }) =>
-      _NodoArchivo._(
-        nombre: nombre, ruta: ruta, esCarpeta: false, lenguaje: lenguaje,
-      );
-
-  factory _NodoArchivo.carpeta({
-    required String nombre,
-    required String ruta,
-  }) =>
-      _NodoArchivo._(
-        nombre: nombre, ruta: ruta, esCarpeta: true,
-      );
-}
-
-class _NodoCarpeta {
-  final String nombre;
-  final String ruta;
-  final List<_NodoArchivo> hijos;
-  _NodoCarpeta({
-    required this.nombre,
-    required this.ruta,
-    required this.hijos,
-  });
 }

@@ -7,6 +7,7 @@ las invocará en su bucle.
 
 from __future__ import annotations
 
+import ast
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -30,6 +31,27 @@ except ImportError:
 
 
 router = APIRouter()
+
+
+class ValidarSintaxisReq(BaseModel):
+    codigo: str = Field(..., min_length=1, max_length=20_000)
+
+
+@router.post("/validar-sintaxis", summary="Verificar sintaxis con el parser real de Python")
+async def validar_sintaxis(
+    req: ValidarSintaxisReq,
+    _u: Annotated[Usuario, Depends(obtener_usuario_actual)],
+) -> dict[str, object]:
+    try:
+        ast.parse(req.codigo)
+    except SyntaxError as exc:
+        return {
+            "valido": False,
+            "linea": exc.lineno,
+            "columna": exc.offset,
+            "mensaje": exc.msg,
+        }
+    return {"valido": True, "linea": None, "columna": None, "mensaje": "Sintaxis válida"}
 
 
 @router.get("/buscar-web", summary="Buscar en internet (sin API key)")
@@ -64,6 +86,10 @@ class EjecutarPythonReq(BaseModel):
     lenguaje: str = Field(
         default="python",
         description="python | javascript | bash",
+    )
+    stdin_texto: str | None = Field(
+        default=None,
+        description="Texto opcional para suministrar a la entrada estándar (stdin/input).",
     )
 
 
@@ -101,6 +127,7 @@ async def ejecutar_python(
             req.codigo,
             lenguaje=req.lenguaje,
             timeout_segundos=req.timeout,
+            stdin_texto=req.stdin_texto,
         )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(

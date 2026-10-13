@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 import uuid
 
@@ -15,7 +16,10 @@ def _normalizar(texto: str) -> str:
     """Normalización tolerante para comparar respuestas en opción múltiple."""
     texto = texto.strip().lower()
     texto = re.sub(r"\s+", " ", texto)
-    return texto.lstrip("abcd) ").strip()
+    # Quitar una etiqueta solo si después hay contenido. "A" y "B" son
+    # respuestas distintas; lstrip("abcd) ") convertía ambas en "".
+    sin_etiqueta = re.sub(r"^[a-d][).]\s*", "", texto)
+    return sin_etiqueta if sin_etiqueta else texto
 
 
 class EvaluationService:
@@ -62,28 +66,40 @@ class EvaluationService:
         correcta: str,
         retro_esperada: str,
     ) -> tuple[float, str]:
+        if tipo == "explicacion_libre":
+            return 0.0, "Respuesta registrada. Pendiente de revisión docente; sin puntuación automática."
+
         if not correcta:
             return 0.0, "No hay respuesta correcta registrada para esta actividad."
 
         if tipo == "opcion_multiple":
-            if _normalizar(respuesta) == _normalizar(correcta):
+            etiqueta_respuesta = re.fullmatch(r"\s*([a-d])\s*[).]?\s*", respuesta, re.I)
+            etiqueta_correcta = re.match(r"\s*([a-d])(?:\s*[).]|\s*$)", correcta, re.I)
+            coincide_etiqueta = (
+                etiqueta_respuesta is not None
+                and etiqueta_correcta is not None
+                and etiqueta_respuesta.group(1).lower() == etiqueta_correcta.group(1).lower()
+            )
+            if coincide_etiqueta or _normalizar(respuesta) == _normalizar(correcta):
                 return 1.0, retro_esperada or "Respuesta correcta."
             return 0.0, retro_esperada or f"Respuesta esperada: {correcta}."
 
         if tipo == "completar_codigo":
-            # Comparación robusta a espacios
-            esperado = re.sub(r"\s+", "", correcta)
-            obtenido = re.sub(r"\s+", "", respuesta)
-            if esperado == obtenido:
+            # El AST ignora formato, pero conserva literales y operaciones.
+            # Es equivalencia estructural, no una prueba de comportamiento.
+            try:
+                esperado = ast.dump(ast.parse(correcta), include_attributes=False)
+                obtenido = ast.dump(ast.parse(respuesta), include_attributes=False)
+            except SyntaxError:
+                esperado = correcta.strip()
+                obtenido = respuesta.strip()
+            if obtenido and esperado == obtenido:
                 return 1.0, retro_esperada or "Código correcto."
-            return 0.5 if esperado in obtenido or obtenido in esperado else 0.0, (
-                retro_esperada or f"Solución esperada: {correcta}"
-            )
+            return 0.0, retro_esperada or f"Revisa tu solución. Ejemplo esperado: {correcta}"
 
         if tipo == "traza_logica":
             if _normalizar(respuesta) == _normalizar(correcta):
                 return 1.0, retro_esperada or "Traza correcta."
             return 0.0, retro_esperada or f"Traza esperada: {correcta}"
 
-        # Explicación libre: puntaje provisional 0.5 hasta revisión humana
-        return 0.5, "Respuesta registrada. Pendiente de revisión cualitativa."
+        raise ValueError(f"Tipo de actividad no soportado: {tipo}")

@@ -93,6 +93,8 @@ class Mensaje {
   final List<FuenteWeb> fuentesWeb;
   final int? nImagenes;
   final String? proveedorUsado;
+  final bool contextoRecortado;
+  final bool respuestaIncompleta;
 
   Mensaje({
     required this.id,
@@ -104,6 +106,8 @@ class Mensaje {
     this.fuentesWeb = const [],
     this.nImagenes,
     this.proveedorUsado,
+    this.contextoRecortado = false,
+    this.respuestaIncompleta = false,
   });
 
   bool get esUsuario => rol == 'usuario';
@@ -128,6 +132,8 @@ class Mensaje {
           .toList(),
       nImagenes: meta is Map ? meta['n_imagenes'] as int? : null,
       proveedorUsado: meta is Map ? meta['proveedor'] as String? : null,
+      contextoRecortado: meta is Map && meta['contexto_recortado'] == true,
+      respuestaIncompleta: meta is Map && meta['respuesta_incompleta'] == true,
     );
   }
 }

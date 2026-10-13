@@ -32,14 +32,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             await init_models()
             log.info("Tablas creadas/verificadas (modo desarrollo).")
         except Exception as exc:  # noqa: BLE001
-            log.warning("No se pudo inicializar la BD automáticamente: %s", exc)
+            log.error("No se pudo inicializar la BD: %s", exc)
+            raise
     # Seed del administrador + carga de API keys configuradas (cifradas).
     try:
         from app.services.bootstrap import inicializar_sistema
 
         await inicializar_sistema()
     except Exception as exc:  # noqa: BLE001
-        log.warning("Bootstrap del sistema incompleto: %s", exc)
+        log.error("Bootstrap del sistema incompleto: %s", exc)
+        raise
     yield
     # Cerrar el subproceso del MCP server si quedó vivo
     try:
@@ -72,7 +74,7 @@ def crear_app() -> FastAPI:
         allow_origins=settings.cors_origins_list,
         # Permite cualquier puerto de localhost/127.0.0.1 (útil para la app
         # Flutter web, que usa un puerto dinámico). Solo afecta a navegadores.
-        allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+        allow_origin_regex=None if settings.is_production else r"http://(localhost|127\.0\.0\.1)(:\d+)?",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

@@ -1,17 +1,18 @@
 import 'dart:io' show Platform;
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
+import '../providers.dart';
 import '../services/fs_local.dart';
 import '../theme.dart';
 
-/// Una línea del historial de la terminal.
+/// Una línea del historial de la terminal interactiva.
 class _Linea {
   final String texto;
-  final String? prompt; // cwd al momento del comando, si es comando
+  final String? prompt; // Directorio de trabajo en el momento del comando
   final bool esComando;
   final bool esError;
   final bool esInfo;
@@ -24,11 +25,11 @@ class _Linea {
   });
 }
 
-/// Información del shell real que usa el backend.
+/// Información del shell nativo del sistema (PowerShell en Windows / Bash en Unix).
 class _ShellInfo {
-  final String nombre; // "cmd", "sh", "no disponible"
-  final String etiquetaCompleta; // "CMD (Windows)" etc.
-  final String simbolo; // "$" o ">"
+  final String nombre; // "powershell", "bash", "zsh"
+  final String etiquetaCompleta; // "powershell", "bash"
+  final String simbolo; // "PS" o "$"
   final Color color;
   const _ShellInfo({
     required this.nombre,
@@ -42,64 +43,70 @@ _ShellInfo _detectarShell() {
   if (!soportaDiscoLocal) {
     return const _ShellInfo(
       nombre: 'no disponible',
-      etiquetaCompleta: 'Terminal no disponible en web',
+      etiquetaCompleta: 'no disponible',
       simbolo: '\$',
       color: AppColors.warning,
     );
   }
-  // ejecutarComandoLocal usa cmd /c en Windows y /bin/sh -c en el resto.
   try {
     if (Platform.isWindows) {
       return const _ShellInfo(
-        nombre: 'cmd',
-        etiquetaCompleta: 'CMD · Windows',
-        simbolo: '>',
-        color: AppColors.info,
+        nombre: 'powershell',
+        etiquetaCompleta: 'powershell',
+        simbolo: 'PS',
+        color: Color(0xFF38BDF8),
       );
     }
     if (Platform.isMacOS) {
       return const _ShellInfo(
-        nombre: 'sh',
-        etiquetaCompleta: 'sh · macOS',
+        nombre: 'zsh',
+        etiquetaCompleta: 'zsh',
         simbolo: '\$',
-        color: AppColors.info,
+        color: Color(0xFF4ADE80),
       );
     }
     if (Platform.isLinux) {
       return const _ShellInfo(
-        nombre: 'sh',
-        etiquetaCompleta: 'sh · Linux',
+        nombre: 'bash',
+        etiquetaCompleta: 'bash',
         simbolo: '\$',
-        color: AppColors.info,
+        color: Color(0xFF4ADE80),
       );
     }
   } catch (_) {}
   return const _ShellInfo(
-    nombre: 'sh',
-    etiquetaCompleta: 'sh',
+    nombre: 'bash',
+    etiquetaCompleta: 'bash',
     simbolo: '\$',
-    color: AppColors.info,
+    color: Color(0xFF4ADE80),
   );
 }
 
-/// Terminal interactiva con shell real del SO.
+/// Terminal interactiva estilo Visual Studio Code.
 ///
-/// [cwdInicial] permite arrancar la terminal directamente en un
-/// directorio concreto — útil cuando se embebe en la vista Code para
-/// que el `cd` ya esté en la carpeta del archivo abierto.
-///
-/// [compacta] reduce paddings y oculta el header descriptivo — pensado
-/// para cuando se mete como panel inferior de otra vista (vista Code).
+/// Integra ejecución nativa en PowerShell (Windows) o Bash/Zsh (Unix),
+/// historial continuo de comandos, atajos de flechas arriba/abajo y diseño
+/// idéntico al panel de terminal integrado de VS Code.
 class TerminalView extends StatefulWidget {
   final String? cwdInicial;
   final bool compacta;
-  const TerminalView({super.key, this.cwdInicial, this.compacta = false});
+  final VoidCallback? onIrASalida;
+  final VoidCallback? onIrAProblemas;
+  final int contadorProblemas;
+  const TerminalView({
+    super.key,
+    this.cwdInicial,
+    this.compacta = false,
+    this.onIrASalida,
+    this.onIrAProblemas,
+    this.contadorProblemas = 0,
+  });
 
   @override
-  State<TerminalView> createState() => _TerminalViewState();
+  State<TerminalView> createState() => TerminalViewState();
 }
 
-class _TerminalViewState extends State<TerminalView> {
+class TerminalViewState extends State<TerminalView> {
   final _ctrl = TextEditingController();
   final _scroll = ScrollController();
   final _focus = FocusNode();
@@ -115,17 +122,38 @@ class _TerminalViewState extends State<TerminalView> {
     super.initState();
     _shell = _detectarShell();
     _intentarCwdInicial();
-    // Sin mensaje inicial — el caret en `_emptyConsola` ya indica que está lista.
+
+    _focus.onKeyEvent = (node, event) {
+      if (event is KeyDownEvent) {
+        if (HardwareKeyboard.instance.isControlPressed &&
+            event.logicalKey == LogicalKeyboardKey.keyL) {
+          _limpiar();
+          _ctrl.clear();
+          return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.ignored;
+    };
+
+    // Mensaje de bienvenida oficial de PowerShell / Terminal
+    if (Platform.isWindows) {
+      _historial.add(_Linea(
+        'Windows PowerShell\nCopyright (C) Microsoft Corporation. Todos los derechos reservados.\n\nInstala la versión más reciente de PowerShell para nuevas características: https://aka.ms/PSWindows\n',
+        esInfo: true,
+      ));
+    } else {
+      _historial.add(_Linea(
+        'Terminal de sistema lista (${_shell.nombre}).\n',
+        esInfo: true,
+      ));
+    }
   }
 
   void _intentarCwdInicial() {
-    // Si el caller (vista Code) nos pasó un cwd explícito, lo usamos.
     if (widget.cwdInicial != null && widget.cwdInicial!.isNotEmpty) {
       _cwd = widget.cwdInicial;
       return;
     }
-    // En desktop intentamos arrancar en el directorio del usuario para
-    // que se vea siempre dónde estás (no esperar al "Cambiar carpeta").
     try {
       if (!kIsWeb) {
         final home = Platform.environment['USERPROFILE'] ??
@@ -137,13 +165,11 @@ class _TerminalViewState extends State<TerminalView> {
     } catch (_) {}
   }
 
-  /// Permite a un widget padre (la vista Code) cambiar el cwd de la
-  /// terminal cuando el usuario abre un archivo distinto.
+  /// Permite a un widget padre (la vista Code) cambiar el cwd de la terminal.
   void cambiarCwd(String nuevoCwd) {
     if (_cwd == nuevoCwd) return;
     setState(() {
       _cwd = nuevoCwd;
-      _historial.add(_Linea('cd "$nuevoCwd"  (automático)', esInfo: true));
     });
   }
 
@@ -155,46 +181,10 @@ class _TerminalViewState extends State<TerminalView> {
     super.dispose();
   }
 
-  Future<void> _elegirCarpeta() async {
-    final dir = await FilePicker.platform.getDirectoryPath();
-    if (dir != null) {
-      setState(() {
-        _cwd = dir;
-        _historial.add(_Linea('cambiado a: $dir', esInfo: true));
-      });
-      _scrollAlFinal();
-    }
-  }
-
-  void _irAHome() {
-    try {
-      final home = Platform.environment['USERPROFILE'] ??
-          Platform.environment['HOME'];
-      if (home != null && home.isNotEmpty) {
-        setState(() {
-          _cwd = home;
-          _historial.add(_Linea('cambiado a: $home', esInfo: true));
-        });
-        _scrollAlFinal();
-      }
-    } catch (_) {}
-  }
-
-  void _subirNivel() {
-    if (_cwd == null) return;
-    final padre = _padre(_cwd!);
-    setState(() {
-      _cwd = padre;
-      _historial.add(_Linea('cambiado a: $padre', esInfo: true));
-    });
-    _scrollAlFinal();
-  }
-
   void _limpiar() {
     setState(() => _historial.clear());
   }
 
-  /// Resuelve `cd <ruta>` localmente — el cwd se mantiene en estado Dart.
   bool _manejarComandoLocal(String cmd) {
     final partes = cmd.trim().split(RegExp(r'\s+'));
     final base = partes.first.toLowerCase();
@@ -205,8 +195,7 @@ class _TerminalViewState extends State<TerminalView> {
     }
 
     if (base == 'pwd') {
-      setState(() => _historial
-          .add(_Linea(_cwd ?? '(sin carpeta de trabajo)')));
+      setState(() => _historial.add(_Linea(_cwd ?? '(sin carpeta de trabajo)')));
       return true;
     }
 
@@ -230,8 +219,7 @@ class _TerminalViewState extends State<TerminalView> {
   void _cambiarCwd(String destino) {
     if (_cwd == null && !_esAbsoluta(destino)) {
       setState(() => _historial.add(_Linea(
-            'cd: necesitas una carpeta base. Usa el botón "Carpeta" o '
-            'pasa una ruta absoluta (p. ej. C:\\Users).',
+            'cd: Ruta no válida o relativa sin base.',
             esError: true,
           )));
       return;
@@ -301,10 +289,9 @@ class _TerminalViewState extends State<TerminalView> {
     final r = await ejecutarComandoLocal(cmd, cwd: _cwd);
     if (!mounted) return;
     setState(() {
-      _historial.add(_Linea(
-        r.salida.isEmpty ? '(sin salida)' : r.salida,
-        esError: r.codigo != 0,
-      ));
+      if (r.salida.isNotEmpty) {
+        _historial.add(_Linea(r.salida, esError: r.codigo != 0));
+      }
       _ejecutando = false;
     });
     _scrollAlFinal();
@@ -315,7 +302,7 @@ class _TerminalViewState extends State<TerminalView> {
       if (_scroll.hasClients) {
         _scroll.animateTo(
           _scroll.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
+          duration: const Duration(milliseconds: 150),
           curve: Curves.easeOut,
         );
       }
@@ -350,24 +337,136 @@ class _TerminalViewState extends State<TerminalView> {
     });
   }
 
+  String _formatearPrompt(String ruta) {
+    if (_shell.simbolo == 'PS') {
+      return 'PS $ruta>';
+    }
+    return '$ruta \$';
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = AppPalette.of(context);
     return Container(
-      color: p.bg,
+      color: p.codeBg,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _header(p),
-          _cwdBanner(p),
+          // Barra de pestañas y herramientas estilo Visual Studio Code
+          _barraSuperiorVsCode(p),
+          // Buffer único de consola (scroll continuo + cursor activo en el flujo)
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                children: [
-                  Expanded(child: _consola(p)),
-                  const SizedBox(height: 10),
-                  _promptInput(p),
-                ],
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _focus.requestFocus(),
+              child: SingleChildScrollView(
+                controller: _scroll,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Historial previo de líneas impresas
+                    for (final linea in _historial) _renderLinea(p, linea),
+
+                    // Indicador si está ejecutando
+                    if (_ejecutando)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              height: 12,
+                              width: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.8,
+                                valueColor: AlwaysStoppedAnimation<Color>(p.primary),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'ejecutando...',
+                              style: TextStyle(
+                                fontFamily: AppFonts.monoFallback.first,
+                                fontSize: 12,
+                                color: p.subtle,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                    // Línea activa del Prompt de PowerShell (exactamente igual a VS Code)
+                    if (!_ejecutando)
+                      Shortcuts(
+                        shortcuts: <ShortcutActivator, Intent>{
+                          const SingleActivator(LogicalKeyboardKey.arrowUp):
+                              const _HistArribaIntent(),
+                          const SingleActivator(LogicalKeyboardKey.arrowDown):
+                              const _HistAbajoIntent(),
+                          const SingleActivator(LogicalKeyboardKey.keyL, control: true):
+                              const _LimpiarIntent(),
+                        },
+                        child: Actions(
+                          actions: <Type, Action<Intent>>{
+                            _HistArribaIntent:
+                                CallbackAction<_HistArribaIntent>(onInvoke: (_) {
+                              _historialArriba();
+                              return null;
+                            }),
+                            _HistAbajoIntent:
+                                CallbackAction<_HistAbajoIntent>(onInvoke: (_) {
+                              _historialAbajo();
+                              return null;
+                            }),
+                            _LimpiarIntent:
+                                CallbackAction<_LimpiarIntent>(onInvoke: (_) {
+                              _limpiar();
+                              return null;
+                            }),
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 2, bottom: 4),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _formatearPrompt(_cwd ?? '~'),
+                                  style: TextStyle(
+                                    fontFamily: AppFonts.monoFallback.first,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: _shell.color,
+                                    height: 1.45,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _ctrl,
+                                    focusNode: _focus,
+                                    autofocus: true,
+                                    maxLines: 1,
+                                    onSubmitted: (_) => _ejecutar(),
+                                    style: TextStyle(
+                                      fontFamily: AppFonts.monoFallback.first,
+                                      fontSize: 12.5,
+                                      color: p.codeText,
+                                      height: 1.45,
+                                    ),
+                                    decoration: const InputDecoration(
+                                      border: InputBorder.none,
+                                      isCollapsed: true,
+                                      contentPadding: EdgeInsets.zero,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -376,447 +475,284 @@ class _TerminalViewState extends State<TerminalView> {
     );
   }
 
-  // ─── Header con título + shell badge + botón limpiar ───
-  Widget _header(AppPalette p) {
+  Widget _barraSuperiorVsCode(AppPalette p) {
     return Container(
-      height: 56,
-      padding: const EdgeInsets.symmetric(horizontal: 18),
+      height: 36,
       decoration: BoxDecoration(
+        color: p.surface,
         border: Border(bottom: BorderSide(color: p.borderSoft)),
       ),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       child: Row(
         children: [
-          Icon(Icons.terminal, size: 18, color: p.primary),
-          const SizedBox(width: 10),
-          Text(
-            'Terminal',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: p.text,
+          // Pestaña activa TERMINAL estilo VS Code
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: p.primary, width: 2),
+              ),
+            ),
+            child: Text(
+              'TERMINAL',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+                color: p.text,
+              ),
             ),
           ),
-          const SizedBox(width: 10),
-          // Badge con el shell real
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: _shell.color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: _shell.color.withValues(alpha: 0.35)),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.code, size: 11, color: _shell.color),
-                const SizedBox(width: 5),
-                Text(
-                  _shell.etiquetaCompleta,
+          const SizedBox(width: 12),
+          Tooltip(
+            message: 'Registro y salida de ejecución del programa',
+            child: InkWell(
+              onTap: widget.onIrASalida,
+              borderRadius: BorderRadius.circular(4),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                child: Text(
+                  'SALIDA',
                   style: TextStyle(
-                    color: _shell.color,
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                    color: widget.onIrASalida != null ? p.muted : p.subtle,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Tooltip(
+            message: 'Lista de errores sintácticos y excepciones detectadas',
+            child: InkWell(
+              onTap: widget.onIrAProblemas,
+              borderRadius: BorderRadius.circular(4),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                child: Row(
+                  children: [
+                    Text(
+                      'PROBLEMAS',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.5,
+                        color: widget.onIrAProblemas != null ? p.muted : p.subtle,
+                      ),
+                    ),
+                    if (widget.contadorProblemas > 0) ...[
+                      const SizedBox(width: 5),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: AppColors.danger,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '${widget.contadorProblemas}',
+                          style: const TextStyle(
+                            fontSize: 9.5,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const Spacer(),
+          // Selector de instancia activa: "1: powershell"
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: p.surface2,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: p.borderSoft),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.terminal_rounded, size: 12, color: _shell.color),
+                const SizedBox(width: 5),
+                Text(
+                  '1: ${_shell.etiquetaCompleta}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: p.text,
                     fontFamily: AppFonts.monoFallback.first,
-                    fontFamilyFallback: AppFonts.monoFallback,
                   ),
                 ),
               ],
             ),
           ),
-          const Spacer(),
+          const SizedBox(width: 8),
+          // Botón Nuevo terminal / Reiniciar (+)
           Tooltip(
-            message: 'Limpiar (Ctrl+L)',
-            child: IconButton(
-              onPressed: _historial.isEmpty ? null : _limpiar,
-              icon: Icon(Icons.cleaning_services_outlined,
-                  size: 16, color: p.muted),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ─── Banner con el CWD prominente + botones de navegación ───
-  Widget _cwdBanner(AppPalette p) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-      decoration: BoxDecoration(
-        color: p.surface,
-        border: Border(bottom: BorderSide(color: p.borderSoft)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.location_on_outlined, size: 14, color: p.primary),
-          const SizedBox(width: 8),
-          Text(
-            'Estás en:',
-            style: TextStyle(
-              fontSize: 12,
-              color: p.muted,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: p.surface2,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: p.borderSoft),
-              ),
-              child: SelectableText(
-                _cwd ?? '(ninguna carpeta seleccionada · usa "Cambiar")',
-                maxLines: 1,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  color: _cwd == null ? p.subtle : p.text,
-                  fontWeight: FontWeight.w500,
-                  fontFamily: AppFonts.monoFallback.first,
-                  fontFamilyFallback: AppFonts.monoFallback,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          _BotonChip(
-            icon: Icons.arrow_upward,
-            tooltip: 'Subir un nivel (cd ..)',
-            onTap: _cwd == null ? null : _subirNivel,
-          ),
-          const SizedBox(width: 4),
-          _BotonChip(
-            icon: Icons.home_outlined,
-            tooltip: 'Ir a Inicio (carpeta personal)',
-            onTap: _irAHome,
-          ),
-          const SizedBox(width: 4),
-          _BotonChip(
-            icon: Icons.folder_open,
-            tooltip: 'Cambiar carpeta…',
-            onTap: _elegirCarpeta,
-            destacado: true,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _consola(AppPalette p) {
-    if (_historial.isEmpty && !_ejecutando) {
-      return _emptyConsola(p);
-    }
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: p.codeBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: p.border),
-      ),
-      padding: const EdgeInsets.all(14),
-      child: Scrollbar(
-        controller: _scroll,
-        thumbVisibility: true,
-        child: ListView.builder(
-          controller: _scroll,
-          itemCount: _historial.length + (_ejecutando ? 1 : 0),
-          itemBuilder: (context, i) {
-            if (i == _historial.length && _ejecutando) {
-              return Padding(
-                padding: const EdgeInsets.only(top: 4, bottom: 6),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      height: 11,
-                      width: 11,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 1.5,
-                        color: p.codeText.withValues(alpha: 0.55),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'ejecutando…',
-                      style: TextStyle(
-                        fontFamily: AppFonts.monoFallback.first,
-                        fontFamilyFallback: AppFonts.monoFallback,
-                        fontSize: 12.5,
-                        color: p.codeText.withValues(alpha: 0.55),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-            return _LineaTerminal(linea: _historial[i], shell: _shell);
-          },
-        ),
-      ),
-    );
-  }
-
-  /// Consola vacía — sólo el caret parpadeante, sin texto tutorial.
-  Widget _emptyConsola(AppPalette p) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: p.codeBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: p.border),
-      ),
-      padding: const EdgeInsets.all(14),
-      alignment: Alignment.topLeft,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Text(
-            _shell.simbolo,
-            style: TextStyle(
-              color: p.codeText.withValues(alpha: 0.35),
-              fontSize: 13,
-              fontFamily: AppFonts.monoFallback.first,
-              fontFamilyFallback: AppFonts.monoFallback,
-            ),
-          ),
-          const SizedBox(width: 8),
-          _CursorParpadeante(color: p.codeText.withValues(alpha: 0.4)),
-        ],
-      ),
-    );
-  }
-
-  Widget _promptInput(AppPalette p) {
-    final mostrarPrompt = _cwd ?? '~';
-    return Container(
-      decoration: BoxDecoration(
-        color: p.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: p.border),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Row(
-        children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 360),
-            child: Text(
-              mostrarPrompt,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: p.muted,
-                fontFamily: AppFonts.monoFallback.first,
-                fontFamilyFallback: AppFonts.monoFallback,
-                fontSize: 13,
-              ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            _shell.simbolo,
-            style: TextStyle(
-              color: p.primary,
-              fontFamily: AppFonts.monoFallback.first,
-              fontFamilyFallback: AppFonts.monoFallback,
-              fontWeight: FontWeight.w600,
-              fontSize: 14,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Shortcuts(
-              shortcuts: <ShortcutActivator, Intent>{
-                const SingleActivator(LogicalKeyboardKey.arrowUp):
-                    const _HistArribaIntent(),
-                const SingleActivator(LogicalKeyboardKey.arrowDown):
-                    const _HistAbajoIntent(),
-                const SingleActivator(LogicalKeyboardKey.keyL, control: true):
-                    const _LimpiarIntent(),
+            message: 'Nuevo terminal / Reiniciar',
+            child: InkWell(
+              onTap: () {
+                _limpiar();
+                _focus.requestFocus();
               },
-              child: Actions(
-                actions: <Type, Action<Intent>>{
-                  _HistArribaIntent:
-                      CallbackAction<_HistArribaIntent>(onInvoke: (_) {
-                    _historialArriba();
-                    return null;
-                  }),
-                  _HistAbajoIntent:
-                      CallbackAction<_HistAbajoIntent>(onInvoke: (_) {
-                    _historialAbajo();
-                    return null;
-                  }),
-                  _LimpiarIntent:
-                      CallbackAction<_LimpiarIntent>(onInvoke: (_) {
-                    _limpiar();
-                    return null;
-                  }),
-                },
-                child: TextField(
-                  controller: _ctrl,
-                  focusNode: _focus,
-                  onSubmitted: (_) => _ejecutar(),
-                  style: TextStyle(
-                    fontFamily: AppFonts.monoFallback.first,
-                    fontFamilyFallback: AppFonts.monoFallback,
-                    fontSize: 13,
-                    color: p.text,
-                  ),
-                  decoration: InputDecoration(
-                    hintText:
-                        Platform.isWindows ? 'dir · python --version · …'
-                                            : 'ls · python --version · …',
-                    hintStyle: TextStyle(
-                      color: p.subtle,
-                      fontFamily: AppFonts.monoFallback.first,
-                      fontFamilyFallback: AppFonts.monoFallback,
-                    ),
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.zero,
-                    isCollapsed: true,
-                  ),
-                ),
+              borderRadius: BorderRadius.circular(4),
+              child: Padding(
+                padding: const EdgeInsets.all(5),
+                child: Icon(Icons.add_rounded, size: 15, color: p.muted),
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          _BotonEjecutar(
-            ejecutando: _ejecutando,
-            onTap: _ejecutar,
+          const SizedBox(width: 4),
+          // Botón Eliminar / Limpiar terminal (Trash)
+          Tooltip(
+            message: 'Limpiar terminal (Ctrl+L)',
+            child: InkWell(
+              onTap: _limpiar,
+              borderRadius: BorderRadius.circular(4),
+              child: Padding(
+                padding: const EdgeInsets.all(5),
+                child: Icon(Icons.delete_outline_rounded, size: 15, color: p.muted),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
-}
 
-class _LineaTerminal extends StatelessWidget {
-  final _Linea linea;
-  final _ShellInfo shell;
-  const _LineaTerminal({required this.linea, required this.shell});
-
-  @override
-  Widget build(BuildContext context) {
-    final p = AppPalette.of(context);
+  Widget _renderLinea(AppPalette p, _Linea linea) {
     if (linea.esInfo) {
       return Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: p.codeText.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(6),
-            border:
-                Border.all(color: p.codeText.withValues(alpha: 0.12)),
-          ),
-          child: SelectableText(
-            linea.texto,
-            style: TextStyle(
-              fontFamily: AppFonts.monoFallback.first,
-              fontFamilyFallback: AppFonts.monoFallback,
-              fontSize: 12,
-              height: 1.55,
-              color: p.codeText.withValues(alpha: 0.85),
-            ),
+        padding: const EdgeInsets.only(bottom: 6),
+        child: SelectableText(
+          linea.texto,
+          style: TextStyle(
+            fontFamily: AppFonts.monoFallback.first,
+            fontSize: 12,
+            color: p.codeText.withValues(alpha: 0.7),
+            height: 1.4,
           ),
         ),
       );
     }
     if (linea.esComando) {
       return Padding(
-        padding: const EdgeInsets.only(top: 4, bottom: 4),
+        padding: const EdgeInsets.only(top: 4, bottom: 2),
         child: RichText(
           text: TextSpan(
             style: TextStyle(
               fontFamily: AppFonts.monoFallback.first,
-              fontFamilyFallback: AppFonts.monoFallback,
               fontSize: 12.5,
-              height: 1.5,
+              height: 1.45,
             ),
             children: [
               TextSpan(
-                text: linea.prompt ?? '~',
-                style: TextStyle(color: p.codeText.withValues(alpha: 0.6)),
-              ),
-              TextSpan(
-                text: ' ${shell.simbolo} ',
+                text: _formatearPrompt(linea.prompt ?? '~'),
                 style: TextStyle(
-                  color: p.primary,
+                  color: _shell.color,
                   fontWeight: FontWeight.w600,
                 ),
               ),
+              const TextSpan(text: ' '),
               TextSpan(
                 text: linea.texto,
-                style: TextStyle(color: p.codeText),
+                style: TextStyle(color: p.codeText, fontWeight: FontWeight.bold),
               ),
             ],
           ),
         ),
       );
     }
+
+    final esFallo = linea.esError ||
+        linea.texto.contains('Traceback') ||
+        linea.texto.contains('Error:') ||
+        linea.texto.contains('Exception:');
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
-      child: SelectableText(
-        linea.texto,
-        style: TextStyle(
-          fontFamily: AppFonts.monoFallback.first,
-          fontFamilyFallback: AppFonts.monoFallback,
-          fontSize: 12.5,
-          height: 1.5,
-          color: linea.esError
-              ? AppColors.danger
-              : p.codeText.withValues(alpha: 0.9),
-        ),
-      ),
-    );
-  }
-}
-
-class _BotonChip extends StatefulWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback? onTap;
-  final bool destacado;
-  const _BotonChip({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-    this.destacado = false,
-  });
-
-  @override
-  State<_BotonChip> createState() => _BotonChipState();
-}
-
-class _BotonChipState extends State<_BotonChip> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = AppPalette.of(context);
-    final habilitado = widget.onTap != null;
-    final color = habilitado ? (widget.destacado ? p.primary : p.muted) : p.subtle;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: Tooltip(
-        message: widget.tooltip,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(7),
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            height: 30,
-            width: 30,
-            decoration: BoxDecoration(
-              color: _hover && habilitado
-                  ? color.withValues(alpha: 0.12)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(7),
-              border: Border.all(color: p.borderSoft),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SelectableText(
+            linea.texto,
+            style: TextStyle(
+              fontFamily: AppFonts.monoFallback.first,
+              fontSize: 12.5,
+              height: 1.4,
+              color: linea.esError
+                  ? const Color(0xFFF87171) // Rojo error suave
+                  : p.codeText.withValues(alpha: 0.9),
             ),
-            child: Icon(widget.icon, size: 14, color: color),
           ),
-        ),
+          if (esFallo && linea.texto.trim().length > 10)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 4),
+              child: InkWell(
+                onTap: () async {
+                  setState(() {
+                    _historial.add(_Linea('🤖 Consultando al Asistente IA sobre este error…', esInfo: true));
+                  });
+                  _scrollAlFinal();
+                  try {
+                    final auth = context.read<AuthProvider>();
+                    final settings = context.read<SettingsProvider>();
+                    final prompt = 'Explica brevemente y de forma didáctica en español este error de ejecución de la terminal y cómo resolverlo:\n```\n${linea.texto}\n```';
+                    final resp = await auth.api.mensajeRapido(
+                      prompt,
+                      idioma: settings.idioma,
+                      proveedor: settings.proveedor,
+                      modoAcompanamiento: settings.modoAcompanamiento,
+                      nivelModulo: settings.nivelModulo,
+                    );
+                    if (!mounted) return;
+                    setState(() {
+                      _historial.add(_Linea(
+                        '💡 Explicación del Asistente IA:\n${resp.mensajeAsistente.contenido.trim()}',
+                        esInfo: true,
+                      ));
+                    });
+                    _scrollAlFinal();
+                  } catch (e) {
+                    if (!mounted) return;
+                    setState(() {
+                      _historial.add(_Linea('Error al consultar al asistente: $e', esError: true));
+                    });
+                    _scrollAlFinal();
+                  }
+                },
+                borderRadius: BorderRadius.circular(5),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.auto_awesome, size: 12, color: AppColors.danger),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Explicar este error con IA',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.danger,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -832,99 +768,4 @@ class _HistAbajoIntent extends Intent {
 
 class _LimpiarIntent extends Intent {
   const _LimpiarIntent();
-}
-
-class _BotonEjecutar extends StatefulWidget {
-  final bool ejecutando;
-  final VoidCallback onTap;
-  const _BotonEjecutar({required this.ejecutando, required this.onTap});
-
-  @override
-  State<_BotonEjecutar> createState() => _BotonEjecutarState();
-}
-
-class _BotonEjecutarState extends State<_BotonEjecutar> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = AppPalette.of(context);
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: widget.ejecutando ? null : widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          height: 30,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: _hover ? p.primaryHover : p.primary,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              if (widget.ejecutando)
-                const SizedBox(
-                  height: 12,
-                  width: 12,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white),
-                )
-              else
-                const Icon(Icons.play_arrow, size: 14, color: Colors.white),
-              const SizedBox(width: 6),
-              const Text(
-                'Ejecutar',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════
-// Widgets del empty state
-// ════════════════════════════════════════════════════════════════════
-
-class _CursorParpadeante extends StatefulWidget {
-  final Color color;
-  const _CursorParpadeante({required this.color});
-
-  @override
-  State<_CursorParpadeante> createState() => _CursorParpadeanteState();
-}
-
-class _CursorParpadeanteState extends State<_CursorParpadeante>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 1000),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _ctrl,
-      child: Container(width: 7, height: 14, color: widget.color),
-    );
-  }
 }

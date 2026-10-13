@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_to_text.dart';
@@ -6,14 +8,6 @@ import '../theme.dart';
 
 /// Servicio de reconocimiento de voz (voz → texto) con resultados en
 /// TIEMPO REAL (cada palabra reconocida se emite mientras hablas).
-///
-/// Detalles clave:
-///   - `partialResults: true` → emite resultados intermedios palabra a
-///     palabra (lo que en web hace la Web Speech API por defecto).
-///   - `listenMode: ListenMode.dictation` → modo "dictado", escucha
-///     periodos largos sin cortarse en pausas cortas.
-///   - `pauseFor` y `listenFor` generosos → permite frases largas.
-///   - `cancelOnError: false` → no aborta por errores menores.
 class VoiceService {
   final SpeechToText _speech = SpeechToText();
   bool _ready = false;
@@ -24,11 +18,21 @@ class VoiceService {
     void Function(String estado)? onStatus,
     void Function(SpeechRecognitionError error)? onError,
   }) async {
+    if (kIsWeb) return false;
+    try {
+      if (Platform.isWindows || Platform.isLinux) return false;
+    } catch (_) {
+      return false;
+    }
     if (_ready) return true;
-    _ready = await _speech.initialize(
-      onError: (e) => onError?.call(e),
-      onStatus: (s) => onStatus?.call(s),
-    );
+    try {
+      _ready = await _speech.initialize(
+        onError: (e) => onError?.call(e),
+        onStatus: (s) => onStatus?.call(s),
+      );
+    } catch (_) {
+      _ready = false;
+    }
     return _ready;
   }
 
@@ -137,10 +141,22 @@ class _MicButtonState extends State<MicButton> {
       if (mounted) setState(() => _escuchando = true);
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Micrófono no disponible. Revisa los permisos del sistema.',
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.mic_none_rounded, color: Colors.white, size: 16),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  Platform.isWindows
+                      ? '🎤 Dictado por voz en Windows: Presiona la combinación de teclas "Win + H" para dictar directamente con el motor de voz de Windows.'
+                      : 'Micrófono no disponible. Revisa los permisos del sistema.',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
           ),
+          duration: const Duration(seconds: 4),
         ),
       );
     }

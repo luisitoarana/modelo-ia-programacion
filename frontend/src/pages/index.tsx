@@ -845,7 +845,7 @@ function Composer({
   setInput: (v: string) => void;
   enviar: (e: FormEvent) => void;
   enviando: boolean;
-  inputRef: React.RefObject<HTMLTextAreaElement>;
+  inputRef: React.RefObject<HTMLTextAreaElement | null>;
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   adjuntos: Adjunto[];
   setAdjuntos: (a: Adjunto[]) => void;

@@ -18,6 +18,7 @@ export interface UnidadConocimiento {
   objetivo_aprendizaje: string | null;
   pregunta_canonica: string;
   codigo: string;
+  codigo_ejemplo?: string;
   explicacion_general: string;
   origen: string;
   estado: string;

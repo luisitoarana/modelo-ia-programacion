@@ -21,7 +21,7 @@ from app.schemas.chat import (
 )
 from app.services.ai_provider import proveedores_disponibles
 from app.services.chat_service import ChatService
-from app.services import model_inference_service as modelo
+from app.services import motor_pedagogico_service
 
 
 router = APIRouter()
@@ -31,36 +31,23 @@ router = APIRouter()
 async def listar_proveedores(
     usuario: Annotated[Usuario, Depends(obtener_usuario_actual)],
 ) -> dict:
-    """Devuelve qué motores puede elegir el usuario en el switcher.
-
-    Esto permite al frontend mostrar SOLO los proveedores con credenciales
-    válidas + el modelo propio cuando esté entrenado.
-    """
-    apis = proveedores_disponibles()
+    """Opciones visibles con procedencia y política de red explícitas."""
     salida = [
         {
             "id": "auto",
-            "nombre": "Automático",
-            "descripcion": "Usa modelo propio si está disponible, si no API.",
+            "nombre": "Asistente Python IA",
+            "descripcion": "Selección automática: puede usar una API externa si está configurada.",
             "tipo": "auto",
             "disponible": True,
         },
         {
             "id": "propio",
-            "nombre": "Modelo propio",
-            "descripcion": "Tu LLM entrenado desde cero (sin APIs externas).",
-            "tipo": "propio",
-            "disponible": modelo.modelo_disponible(),
+            "nombre": "Motor Pedagógico Propio (Local Offline)",
+            "descripcion": "Motor neuronal propio local offline con andamiaje pedagógico y aceleración por hardware.",
+            "tipo": "local",
+            "disponible": motor_pedagogico_service.esta_disponible(),
         },
     ]
-    for nombre in apis:
-        salida.append({
-            "id": nombre,
-            "nombre": nombre.capitalize(),
-            "descripcion": f"API externa ({nombre}).",
-            "tipo": "api",
-            "disponible": True,
-        })
     return {"proveedores": salida}
 
 
@@ -126,6 +113,8 @@ async def enviar(
         idioma=datos.idioma,
         habilitar_busqueda_web=datos.buscar_web,
         proveedor_forzado=datos.proveedor,
+        modo_acompanamiento=datos.modo_acompanamiento,
+        nivel_modulo=datos.nivel_modulo,
     )
     await sesion.commit()
     await sesion.refresh(msg_u)
@@ -221,6 +210,8 @@ async def mensaje_rapido(
         idioma=datos.idioma,
         habilitar_busqueda_web=datos.buscar_web,
         proveedor_forzado=datos.proveedor,
+        modo_acompanamiento=datos.modo_acompanamiento,
+        nivel_modulo=datos.nivel_modulo,
     )
     await sesion.commit()
     await sesion.refresh(conv)

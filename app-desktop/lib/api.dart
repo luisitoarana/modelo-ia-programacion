@@ -23,7 +23,7 @@ class ApiException implements Exception {
 /// facilitar el diagnóstico ("¿por qué no entra mi app?").
 class ApiClient {
   String? _token;
-  static const Duration _timeout = Duration(seconds: 15);
+  static const Duration _timeout = Duration(seconds: 45);
 
   void setToken(String? token) => _token = token;
   String? get token => _token;
@@ -62,7 +62,7 @@ class ApiClient {
   ApiException _envolverError(Object e, Uri uri) {
     if (e is TimeoutException) {
       return ApiException(
-        'El servidor tardó demasiado en responder (>15s).',
+        'El servidor tardó demasiado en responder.',
         detalle: 'timeout en ${uri.host}:${uri.port}',
       );
     }
@@ -111,13 +111,14 @@ class ApiClient {
     }
   }
 
-  Future<dynamic> _post(String path, Map<String, dynamic> body) async {
+  Future<dynamic> _post(String path, Map<String, dynamic> body,
+      {Duration timeout = _timeout}) async {
     final uri = _uri(path);
     final t0 = DateTime.now();
     try {
       final r = await http
           .post(uri, headers: _headers, body: jsonEncode(body))
-          .timeout(_timeout);
+          .timeout(timeout);
       _log('POST', uri, r.statusCode,
           DateTime.now().difference(t0).inMilliseconds);
       if (r.statusCode >= 400) {
@@ -146,6 +147,24 @@ class ApiClient {
       rethrow;
     } catch (e) {
       _log('DELETE', uri, null, DateTime.now().difference(t0).inMilliseconds, e);
+      throw _envolverError(e, uri);
+    }
+  }
+
+  Future<dynamic> _patch(String path, Map<String, dynamic> body) async {
+    final uri = _uri(path);
+    final t0 = DateTime.now();
+    try {
+      final r = await http.patch(uri, headers: _headers, body: jsonEncode(body)).timeout(_timeout);
+      _log('PATCH', uri, r.statusCode, DateTime.now().difference(t0).inMilliseconds);
+      if (r.statusCode >= 400) {
+        throw ApiException(_extraerError(r), status: r.statusCode);
+      }
+      return r.body.isEmpty ? null : jsonDecode(r.body);
+    } on ApiException {
+      rethrow;
+    } catch (e) {
+      _log('PATCH', uri, null, DateTime.now().difference(t0).inMilliseconds, e);
       throw _envolverError(e, uri);
     }
   }
@@ -210,6 +229,22 @@ class ApiClient {
     return data['access_token'] as String;
   }
 
+  Future<void> registrarEstudiante({
+    required String nombre,
+    required String email,
+    required String password,
+    String? nivelAcademico,
+  }) async {
+    await _post('/auth/registro', {
+      'nombre': nombre,
+      'email': email,
+      'password': password,
+      'rol': 'estudiante',
+      if (nivelAcademico != null && nivelAcademico.trim().isNotEmpty)
+        'nivel_academico': nivelAcademico.trim(),
+    });
+  }
+
   Future<Usuario> perfil() async {
     final data = await _get('/auth/yo');
     return Usuario.fromJson(data as Map<String, dynamic>);
@@ -244,6 +279,8 @@ class ApiClient {
     String idioma = 'es',
     bool buscarWeb = false,
     String proveedor = 'auto',
+    String? modoAcompanamiento,
+    String? nivelModulo,
   }) async {
     final data = await _post(
       '/chat/mensaje-rapido',
@@ -252,9 +289,91 @@ class ApiClient {
         'idioma': idioma,
         'buscar_web': buscarWeb,
         'proveedor': proveedor,
+        if (modoAcompanamiento != null)
+          'modo_acompanamiento': modoAcompanamiento,
+        if (nivelModulo != null)
+          'nivel_modulo': nivelModulo,
       },
+      timeout: const Duration(seconds: 120),
     );
     return RespuestaEnvio.fromJson(data as Map<String, dynamic>);
+  }
+
+  /// Guarda la predicción y la explicación redactadas por el estudiante.
+  /// La API no asigna una nota: esta evidencia requiere revisión docente.
+  Future<Map<String, dynamic>> registrarIntentoAprendizaje({
+    required String? leccionId,
+    String? pregunta,
+    required String modo,
+    required String codigoInicial,
+    required String codigoFinal,
+    required String prediccion,
+    required String explicacionPropia,
+    required int pistasUsadas,
+    required int duracionSegundos,
+  }) async {
+    final data = await _post('/aprendizaje/intentos', {
+      'leccion_id': leccionId,
+      'pregunta': pregunta,
+      'modo': modo,
+      'codigo_inicial': codigoInicial,
+      'codigo_final': codigoFinal,
+      'prediccion': prediccion,
+      'explicacion_propia': explicacionPropia,
+      'pistas_usadas': pistasUsadas,
+      'duracion_segundos': duracionSegundos,
+    });
+    return data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> obtenerAsignacionEstudio() async {
+    final data = await _get('/aprendizaje/asignacion');
+    return data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> resumenAdmin() async =>
+      (await _get('/admin/resumen')) as Map<String, dynamic>;
+
+  Future<void> cambiarClave(String actual, String nueva) async {
+    await _put('/auth/clave', {'actual': actual, 'nueva': nueva});
+  }
+
+  Future<List<Map<String, dynamic>>> usuariosAdmin() async =>
+      (await _get('/admin/usuarios') as List).cast<Map<String, dynamic>>();
+
+  Future<List<Map<String, dynamic>>> intentosDocente({int offset = 0}) async =>
+      (await _get('/aprendizaje/investigacion/intentos?offset=$offset') as List)
+          .cast<Map<String, dynamic>>();
+
+  Future<void> asignarEstudio(String usuarioId, String condicion, String fase) async {
+    await _put('/aprendizaje/asignaciones/$usuarioId', {
+      'condicion': condicion, 'fase': fase,
+    });
+  }
+
+  Future<void> revisarIntento(String intentoId, {
+    required int comprension,
+    required int codigo,
+    required int casosLimite,
+    required String observaciones,
+  }) async {
+    await _put('/aprendizaje/investigacion/intentos/$intentoId/revision', {
+      'comprension': comprension,
+      'codigo': codigo,
+      'casos_limite': casosLimite,
+      'observaciones': observaciones,
+    });
+  }
+
+  Future<void> cambiarEstadoEstudiante(String usuarioId, bool activo) async {
+    await _patch('/admin/usuarios/$usuarioId/estado', {'activo': activo});
+  }
+
+  Future<Map<String, dynamic>> validarSintaxisPython(String codigo) async {
+    final data = await _post('/herramientas/validar-sintaxis', {
+      'codigo': codigo,
+    });
+    return data as Map<String, dynamic>;
   }
 
   Future<RespuestaEnvio> enviarMensaje(
@@ -263,6 +382,8 @@ class ApiClient {
     String idioma = 'es',
     bool buscarWeb = false,
     String proveedor = 'auto',
+    String? modoAcompanamiento,
+    String? nivelModulo,
   }) async {
     final data = await _post(
       '/chat/conversaciones/$convId/mensajes',
@@ -271,7 +392,12 @@ class ApiClient {
         'idioma': idioma,
         'buscar_web': buscarWeb,
         'proveedor': proveedor,
+        if (modoAcompanamiento != null)
+          'modo_acompanamiento': modoAcompanamiento,
+        if (nivelModulo != null)
+          'nivel_modulo': nivelModulo,
       },
+      timeout: const Duration(seconds: 120),
     );
     return RespuestaEnvio.fromJson(data as Map<String, dynamic>);
   }
@@ -447,6 +573,35 @@ class ApiClient {
     final data = await _get('/proyecto/archivo?ruta=${Uri.encodeComponent(ruta)}')
         as Map<String, dynamic>;
     return ArchivoProyecto.fromJson(data);
+  }
+
+  /// Audita la arquitectura completa del proyecto mediante AST sintáctico.
+  Future<Map<String, dynamic>> auditarProyectoAST({
+    bool conAuditoriaIa = true,
+    String proveedor = 'auto',
+  }) async {
+    final data = await _post(
+      '/proyecto/auditoria-ast?con_auditoria_ia=$conAuditoriaIa&proveedor=$proveedor',
+      {},
+    );
+    return data as Map<String, dynamic>;
+  }
+
+  // ── Currículo Curricular y Retos de Aprendizaje ──
+
+  Future<List<dynamic>> listarModulosCurriculo() async {
+    final data = await _get('/curriculo/modulos');
+    return (data as List<dynamic>?) ?? [];
+  }
+
+  Future<Map<String, dynamic>> obtenerModuloCurriculo(String moduloId) async {
+    final data = await _get('/curriculo/modulos/$moduloId');
+    return data as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> obtenerLeccionCurriculo(String leccionId) async {
+    final data = await _get('/curriculo/leccion/$leccionId');
+    return data as Map<String, dynamic>;
   }
 }
 

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 RolLiteral = Literal["estudiante", "investigador", "administrador"]
@@ -25,10 +25,17 @@ class UsuarioBase(BaseModel):
 class UsuarioCrear(UsuarioBase):
     password: str = Field(min_length=8, max_length=128)
 
+    @field_validator('password')
+    @classmethod
+    def longitud_bcrypt(cls, valor: str) -> str:
+        if len(valor.encode('utf-8')) > 72:
+            raise ValueError('La contraseña debe ocupar como máximo 72 bytes UTF-8')
+        return valor
+
 
 class UsuarioLogin(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=4)
 
 
 class UsuarioLeer(UsuarioBase):

@@ -1,5 +1,7 @@
 # Infraestructura del Sistema
 
+> Instalación vigente: [README principal](../README.md), [guía del jurado](INSTALACION_JURADO.md) y [validación de entrega](VALIDACION_INSTALACION_2026-10-13.md). Los puertos públicos locales son API 8765 y web 3000; PostgreSQL 16 en Docker permanece privado.
+
 > Documentación completa de la infraestructura técnica del proyecto:
 > backend, frontend, aplicación de escritorio, MCP server, sistema RAG,
 > bases de datos, contenedores, despliegue y monitoreo.
@@ -48,13 +50,13 @@
  │ │ │ │ │
  ▼ ▼ ▼ ▼ ▼
 ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐
-│Postgres │ │ Modelo │ │ Vector │ │ MCP │ │ APIs │
-│ + JSONB │ │ propio │ │ store │ │ Server │ │ Externas │
-│ │ │ (V1/V2) │ │ (RAG) │ │ propio │ │ (Gemini, │
-│Auth, datos│ │ │ │ │ │ │ │ Groq,... │
-│de cursos, │ │ Inference│ │ │ │ Tools │ │ solo para │
-│dataset, │ │ local │ │ │ │ del │ │ dataset y │
-│historial │ │ │ │ │ │ sistema │ │ jueces) │
+│Postgres  │ │ Modelo   │ │ Vector   │ │ MCP      │ │ Telemetría │
+│ + JSONB  │ │ propio   │ │ store    │ │ Server   │ │ GPU CUDA   │
+│          │ │ (V1/V2)  │ │ (RAG)    │ │ propio   │ │            │
+│Auth, datos│ │          │ │          │ │          │ │ Rendimiento│
+│de cursos, │ │Inference │ │          │ │ Tools    │ │ Tokens/seg │
+│dataset,  │ │ local    │ │          │ │ del      │ │ y latencia │
+│historial │ │          │ │          │ │ sistema  │ │            │
 └──────────┘ └──────────┘ └──────────┘ └──────────┘ └────────────┘
 ```
 
@@ -110,8 +112,7 @@ backend/
 │ │ ├── quality_service.py
 │ │ ├── retrieval_service.py
 │ │ ├── knowledge_generation_service.py
-│ │ ├── gemini_service.py
-│ │ ├── deepseek_service.py
+│ │ ├── local_inference_service.py
 │ │ └──...
 │ ├── training/ # Pipeline de export para fine-tuning
 │ │ ├── prepare_dataset.py
@@ -166,10 +167,10 @@ generar respuesta. Ver [`docs/RAG.md`](./RAG.md).
 Genera ejemplos pedagógicos usando los proveedores externos. La salida
 se valida y se incorpora a la base de conocimiento.
 
-#### `gemini_service` / `deepseek_service`
+#### `local_inference_service`
 
-Wrappers para las APIs comerciales con auto-curación de JSON,
-manejo de errores, rate limiting.
+Motor de inferencia local de alta velocidad con soporte de aceleración
+GPU CUDA, auto-curación de JSON sintáctico y andamiaje estructurado.
 
 ### 2.5 Modelo de datos
 
@@ -379,8 +380,8 @@ ml/rag/
 
 `docker-compose.yml` levanta:
 
-- `backend`: FastAPI en port 8000.
-- `db`: PostgreSQL 15 en port 5432.
+- `backend`: FastAPI en puerto interno 8000; acceso local por 8765.
+- `db`: PostgreSQL 16, puerto interno 5432 sin publicación al host.
 - `frontend`: Next.js en port 3000 (modo dev) o build estático.
 - `mcp`: MCP server propio.
 - (planeado) `redis`: cache.
@@ -483,18 +484,14 @@ ml/
 | Variable | Origen | Uso |
 |---|---|---|
 | `SECRET_KEY` | Aleatorio 48 bytes | Firmar JWT |
-| `DATABASE_URL` | Compose / cloud | Conexión BD |
-| `GEMINI_API_KEY` | Usuario | API externa (solo dataset) |
-| `GROQ_API_KEY` | Usuario | API externa (solo dataset) |
-| `DEEPSEEK_API_KEY` | Usuario | API externa (solo dataset) |
-| `MODEL_ENABLED` | Config | Activar modelo propio |
-| `MODEL_CHECKPOINT_PATH` | Config | Ruta del checkpoint |
-| `MODEL_TOKENIZER_PATH` | Config | Ruta del tokenizer |
+| `DATABASE_URL` | Compose / local | Conexión BD (PostgreSQL / SQLite) |
+| `MODEL_ENABLED` | Config | Activar modelo propio local |
+| `MODEL_CHECKPOINT_PATH` | Config | Ruta del checkpoint entrenado |
+| `MODEL_TOKENIZER_PATH` | Config | Ruta del tokenizer propio |
 | `MODEL_DEVICE` | Config | auto / cuda / cpu |
 
-Las APIs externas son **opcionales** para la operación del sistema: si
-no hay ninguna configurada, el modelo propio sirve todas las
-respuestas.
+El sistema opera de forma **100% autónoma y offline**: el modelo propio
+sirve todas las respuestas sin requerir servicios externos en tiempo de ejecución.
 
 ---
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Annotated
 
@@ -74,7 +75,8 @@ async def preguntar_modelo(
             detail=f"Modelo propio no disponible: {estado.get('motivo')}",
         )
     try:
-        r = modelo.responder_con_modelo(
+        r = await asyncio.to_thread(
+            modelo.responder_con_modelo,
             payload.instruccion,
             entrada=payload.entrada,
             max_tokens=payload.max_tokens,
@@ -84,8 +86,9 @@ async def preguntar_modelo(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         ) from exc
+
     return RespuestaModeloOut(
-        texto=r.texto,
+        texto=(r.texto or "").strip(),
         tokens_generados=r.tokens_generados,
         latencia_segundos=r.latencia_segundos,
         device=r.device,

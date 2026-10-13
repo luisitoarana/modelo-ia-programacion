@@ -1,69 +1,52 @@
 name: sistema-explicador-python-ia
-
 services:
   db:
     image: postgres:16-alpine
-    container_name: explicador_db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:?Ejecute primero iniciar_backend.bat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta configurar backend/.env}
       POSTGRES_DB: ${POSTGRES_DB:-sistema_explicador}
-    ports:
-      - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
-      interval: 10s
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
       timeout: 5s
-      retries: 5
-
+      retries: 12
   backend:
     build:
       context: .
-      dockerfile: docker/backend.Dockerfile
-    container_name: explicador_backend
+      dockerfile: backend/Dockerfile
+      args:
+        INSTALL_LOCAL_MODEL: ${INSTALL_LOCAL_MODEL:-true}
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: backend/.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-sistema_explicador}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-sistema_explicador}
+      PROYECTO_ROOT: /workspace/proyectos
+      APP_ENV: development
+      APP_DEBUG: 'false'
     depends_on:
       db:
         condition: service_healthy
     ports:
-      # Exponemos en 8765 para evitar conflicto con otros procesos que
-      # puedan estar usando el clásico 8000 en la PC del usuario.
-      - "8765:8000"
+      - '127.0.0.1:${BACKEND_PORT:-8765}:8000'
     volumes:
-      - ./backend:/app
-      - ./datasets:/datasets
-      - ./knowledge_base:/knowledge_base
-      - ./logs:/app/logs
-      # MCP server local — el backend lo lanza como subproceso para
-      # exponer tools (leer/escribir archivos, ejecutar Python, ...).
-      - ./mcp_server:/app/mcp_server
-      # Proyecto montado en solo lectura para el explorador de archivos.
-      - .:/proyecto:ro
-
+      - ./models:/workspace/models:ro
+      - proyectos:/workspace/proyectos
   frontend:
     build:
       context: .
-      dockerfile: docker/frontend.Dockerfile
-    container_name: explicador_frontend
+      dockerfile: frontend/Dockerfile
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8765/api/v1
+      NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8765}/api/v1
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
-
+      - '127.0.0.1:${WEB_PORT:-3000}:3000'
 volumes:
   db_data:
-    driver: local
+  proyectos:

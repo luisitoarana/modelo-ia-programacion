@@ -43,8 +43,8 @@ class _SelectorProveedorState extends State<SelectorProveedor> {
         setState(() {
           _proveedores = const [
             ProveedorIA(
-              id: 'auto', nombre: 'Automático',
-              descripcion: 'Backend offline · usando local',
+              id: 'auto', nombre: 'Asistente Python IA',
+              descripcion: 'Selección automática según los motores configurados',
               tipo: 'auto', disponible: true,
             ),
           ];
@@ -57,13 +57,13 @@ class _SelectorProveedorState extends State<SelectorProveedor> {
 
   IconData _iconoTipo(String tipo) {
     if (tipo == 'auto') return Icons.bolt_rounded;
-    if (tipo == 'propio') return Icons.auto_awesome_rounded;
+    if (tipo == 'propio' || tipo == 'local') return Icons.auto_awesome_rounded;
     return Icons.cloud_outlined;
   }
 
   Color _colorTipo(String tipo, AppPalette p) {
     if (tipo == 'auto') return AppColors.accent;
-    if (tipo == 'propio') return p.primary;
+    if (tipo == 'propio' || tipo == 'local') return p.primary;
     return AppColors.info;
   }
 
@@ -111,62 +111,71 @@ class _SelectorProveedorState extends State<SelectorProveedor> {
       orElse: () => _proveedores.isNotEmpty
           ? _proveedores.first
           : const ProveedorIA(
-              id: 'auto', nombre: 'Automático',
-              descripcion: '', tipo: 'auto', disponible: true,
+              id: 'auto', nombre: 'Asistente Python IA',
+              descripcion: '', tipo: 'propio', disponible: true,
             ),
     );
+
+    final hayVarios = _proveedores.length > 1;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      cursor: SystemMouseCursors.click,
-      child: Builder(
-        builder: (innerCtx) => GestureDetector(
-          onTap: () => _abrirMenu(innerCtx, actualId),
-          child: AnimatedContainer(
-            duration: AppMotion.fast,
-            curve: AppMotion.standard,
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.x3,
-              vertical: 7,
-            ),
-            decoration: BoxDecoration(
-              color: _hover ? p.surface2 : p.surface,
-              border: Border.all(
-                color: _hover ? p.border : p.borderSoft,
+      cursor: hayVarios ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: Tooltip(
+        message: actual.descripcion.isNotEmpty
+            ? actual.descripcion
+            : 'Motor neural de la tesis (100% offline · GPU CUDA + Andamiaje)',
+        child: Builder(
+          builder: (innerCtx) => GestureDetector(
+            onTap: hayVarios ? () => _abrirMenu(innerCtx, actualId) : null,
+            child: AnimatedContainer(
+              duration: AppMotion.fast,
+              curve: AppMotion.standard,
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.x3,
+                vertical: 7,
               ),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _iconoTipo(actual.tipo),
-                  size: 13,
-                  color: _colorTipo(actual.tipo, p),
+              decoration: BoxDecoration(
+                color: _hover && hayVarios ? p.surface2 : p.surface,
+                border: Border.all(
+                  color: _hover && hayVarios ? p.border : p.borderSoft,
                 ),
-                const SizedBox(width: 6),
-                Text(
-                  actual.nombre,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: p.text,
-                    letterSpacing: 0.1,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _iconoTipo(actual.tipo),
+                    size: 13,
+                    color: _colorTipo(actual.tipo, p),
                   ),
-                ),
-                const SizedBox(width: 4),
-                AnimatedRotation(
-                  turns: _hover ? -0.5 : 0,
-                  duration: AppMotion.medium,
-                  curve: AppMotion.standard,
-                  child: Icon(
-                    Icons.keyboard_arrow_down_rounded,
-                    size: 14,
-                    color: p.muted,
+                  const SizedBox(width: 6),
+                  Text(
+                    actual.nombre,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: p.text,
+                      letterSpacing: 0.1,
+                    ),
                   ),
-                ),
-              ],
+                  if (hayVarios) ...[
+                    const SizedBox(width: 4),
+                    AnimatedRotation(
+                      turns: _hover ? -0.5 : 0,
+                      duration: AppMotion.medium,
+                      curve: AppMotion.standard,
+                      child: Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        size: 14,
+                        color: p.muted,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ),

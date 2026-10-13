@@ -6,7 +6,7 @@ import '../theme.dart';
 
 /// Bloque de fuentes citadas por una respuesta del asistente.
 ///
-/// Diseño "Claude.ai":
+/// Componente de visualización de fuentes y métricas del sistema:
 ///   - Por defecto compactado, sin invadir visualmente la respuesta.
 ///   - Expandible con animación fluida.
 ///   - Chips densos pero respiran (12px de padding interno).

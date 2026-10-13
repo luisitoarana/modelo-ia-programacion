@@ -42,7 +42,8 @@ class CrearConversacion(BaseModel):
 
 
 class EnviarMensaje(BaseModel):
-    contenido: str = Field(min_length=1, max_length=8000)
+    # El tamaño del archivo aceptado es independiente de la ventana del LLM.
+    contenido: str = Field(min_length=1, max_length=250000)
     idioma: str = Field(default="es", max_length=10)
     # Si es True el backend invoca búsqueda web cuando la pregunta lo amerita
     # (heurística sobre el texto). Por defecto desactivado para ahorrar latencia.
@@ -51,6 +52,20 @@ class EnviarMensaje(BaseModel):
     # Valores: "auto" (default — modelo propio si está, si no API),
     # "propio" (forzar modelo propio), "gemini", "deepseek".
     proveedor: str = Field(default="auto", max_length=30)
+    # Condición del estudio cuasiexperimental de tesis:
+    # "con_acompanamiento" (Grupo Experimental - Andamiaje) vs "sin_acompanamiento" (Grupo Control - Solo Código)
+    modo_acompanamiento: str | None = Field(
+        default=None,
+        description="con_acompanamiento | sin_acompanamiento | bloqueado_post_test",
+        max_length=30,
+    )
+    # Módulo Curricular de Aprendizaje (adaptación del andamiaje pedagógico):
+    # "principiante" (Fundamentos y palabras reservadas) | "intermedio" (Control y estructuras) | "avanzado" (Complejidad y POO)
+    nivel_modulo: str | None = Field(
+        default="principiante",
+        description="principiante | intermedio | avanzado",
+        max_length=30,
+    )
 
 
 class RespuestaEnvio(BaseModel):

@@ -334,6 +334,318 @@ class DeepSeekProvider(ProveedorIA):
 
 
 # ---------------------------------------------------------------------------
+# Groq (Ultra-Rápido 300-500 tokens/segundo · Nivel Gratuito de Alto Rendimiento)
+# ---------------------------------------------------------------------------
+
+class GroqProvider(ProveedorIA):
+    """Cliente async para la API de Groq Cloud (hardware LPU de ultra-baja latencia)."""
+
+    nombre = "groq"
+    etiqueta_fuente = "motor-alta-velocidad"
+
+    def __init__(self, modelo: str = "llama-3.3-70b-versatile") -> None:
+        self.modelo = modelo
+        self.base_url = "https://api.groq.com/openai/v1"
+        self.timeout = 25.0
+
+    @property
+    def api_key(self) -> str:
+        return runtime_config.get_api_key("groq")
+
+    @property
+    def esta_configurado(self) -> bool:
+        return bool(self.api_key)
+
+    async def generar(
+        self,
+        *,
+        sistema: str,
+        usuario: str,
+        temperatura: float,
+        max_tokens: int,
+        json_mode: bool = False,
+    ) -> ResultadoLLM:
+        if not self.esta_configurado:
+            raise ProveedorIAError("No hay API key de Groq configurada.")
+
+        url = f"{self.base_url}/chat/completions"
+        cuerpo: dict[str, Any] = {
+            "model": self.modelo,
+            "messages": [
+                {"role": "system", "content": sistema},
+                {"role": "user", "content": usuario},
+            ],
+            "temperature": temperatura,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        if json_mode:
+            cuerpo["response_format"] = {"type": "json_object"}
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        inicio = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as cliente:
+                resp = await cliente.post(url, json=cuerpo, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPStatusError as exc:
+            log.error("Groq HTTP %s: %s", exc.response.status_code, exc.response.text[:400])
+            raise ProveedorIAError(
+                f"Groq respondió {exc.response.status_code}: {exc.response.text[:200]}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ProveedorIAError(f"Fallo de conexión con Groq: {exc}") from exc
+
+        latencia = time.perf_counter() - inicio
+        eleccion = (data.get("choices") or [{}])[0]
+        texto = ((eleccion.get("message") or {}).get("content") or "").strip()
+        uso = data.get("usage", {}) or {}
+
+        return ResultadoLLM(
+            texto=texto,
+            tokens_entrada=int(uso.get("prompt_tokens", 0) or 0),
+            tokens_salida=int(uso.get("completion_tokens", 0) or 0),
+            latencia_segundos=round(latencia, 4),
+            modelo=self.modelo,
+            proveedor=self.nombre,
+            payload_crudo=data,
+        )
+
+
+# ---------------------------------------------------------------------------
+# OpenAI (GPT-4o / GPT-4o-mini · Modo Pro)
+# ---------------------------------------------------------------------------
+
+class OpenAIProvider(ProveedorIA):
+    """Cliente async para OpenAI (GPT-4o)."""
+
+    nombre = "openai"
+    etiqueta_fuente = "motor-openai"
+
+    def __init__(self, modelo: str = "gpt-4o") -> None:
+        self.modelo = modelo
+        self.base_url = "https://api.openai.com/v1"
+        self.timeout = 45.0
+
+    @property
+    def api_key(self) -> str:
+        return runtime_config.get_api_key("openai")
+
+    @property
+    def esta_configurado(self) -> bool:
+        return bool(self.api_key)
+
+    async def generar(
+        self,
+        *,
+        sistema: str,
+        usuario: str,
+        temperatura: float,
+        max_tokens: int,
+        json_mode: bool = False,
+    ) -> ResultadoLLM:
+        if not self.esta_configurado:
+            raise ProveedorIAError("No hay API key de OpenAI configurada.")
+
+        url = f"{self.base_url}/chat/completions"
+        cuerpo: dict[str, Any] = {
+            "model": self.modelo,
+            "messages": [
+                {"role": "system", "content": sistema},
+                {"role": "user", "content": usuario},
+            ],
+            "temperature": temperatura,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        if json_mode:
+            cuerpo["response_format"] = {"type": "json_object"}
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        inicio = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as cliente:
+                resp = await cliente.post(url, json=cuerpo, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPError as exc:
+            raise ProveedorIAError(f"Fallo de conexión con OpenAI: {exc}") from exc
+
+        latencia = time.perf_counter() - inicio
+        eleccion = (data.get("choices") or [{}])[0]
+        texto = ((eleccion.get("message") or {}).get("content") or "").strip()
+        uso = data.get("usage", {}) or {}
+
+        return ResultadoLLM(
+            texto=texto,
+            tokens_entrada=int(uso.get("prompt_tokens", 0) or 0),
+            tokens_salida=int(uso.get("completion_tokens", 0) or 0),
+            latencia_segundos=round(latencia, 4),
+            modelo=self.modelo,
+            proveedor=self.nombre,
+            payload_crudo=data,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Anthropic (Claude 3.5 Sonnet / Haiku · Modo Pro)
+# ---------------------------------------------------------------------------
+
+class AnthropicProvider(ProveedorIA):
+    """Cliente async para Anthropic (Claude)."""
+
+    nombre = "anthropic"
+    etiqueta_fuente = "motor-claude"
+
+    def __init__(self, modelo: str = "claude-3-5-sonnet-20241022") -> None:
+        self.modelo = modelo
+        self.base_url = "https://api.anthropic.com/v1"
+        self.timeout = 45.0
+
+    @property
+    def api_key(self) -> str:
+        return runtime_config.get_api_key("anthropic")
+
+    @property
+    def esta_configurado(self) -> bool:
+        return bool(self.api_key)
+
+    async def generar(
+        self,
+        *,
+        sistema: str,
+        usuario: str,
+        temperatura: float,
+        max_tokens: int,
+        json_mode: bool = False,
+    ) -> ResultadoLLM:
+        if not self.esta_configurado:
+            raise ProveedorIAError("No hay API key de Anthropic configurada.")
+
+        url = f"{self.base_url}/messages"
+        cuerpo: dict[str, Any] = {
+            "model": self.modelo,
+            "max_tokens": max_tokens,
+            "system": sistema,
+            "messages": [
+                {"role": "user", "content": usuario},
+            ],
+            "temperature": temperatura,
+        }
+        headers = {
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+
+        inicio = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as cliente:
+                resp = await cliente.post(url, json=cuerpo, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPError as exc:
+            raise ProveedorIAError(f"Fallo de conexión con Anthropic: {exc}") from exc
+
+        latencia = time.perf_counter() - inicio
+        bloques = data.get("content", [])
+        texto = "".join(b.get("text", "") for b in bloques if b.get("type") == "text").strip()
+        uso = data.get("usage", {}) or {}
+
+        return ResultadoLLM(
+            texto=texto,
+            tokens_entrada=int(uso.get("input_tokens", 0) or 0),
+            tokens_salida=int(uso.get("output_tokens", 0) or 0),
+            latencia_segundos=round(latencia, 4),
+            modelo=self.modelo,
+            proveedor=self.nombre,
+            payload_crudo=data,
+        )
+
+
+# ---------------------------------------------------------------------------
+# OpenRouter (Modelos gratuitos y multimodelo)
+# ---------------------------------------------------------------------------
+
+class OpenRouterProvider(ProveedorIA):
+    """Cliente async para OpenRouter (acceso a modelos libres y comerciales)."""
+
+    nombre = "openrouter"
+    etiqueta_fuente = "motor-openrouter"
+
+    def __init__(self, modelo: str = "google/gemini-2.0-flash-exp:free") -> None:
+        self.modelo = modelo
+        self.base_url = "https://openrouter.ai/api/v1"
+        self.timeout = 35.0
+
+    @property
+    def api_key(self) -> str:
+        return runtime_config.get_api_key("openrouter")
+
+    @property
+    def esta_configurado(self) -> bool:
+        return bool(self.api_key)
+
+    async def generar(
+        self,
+        *,
+        sistema: str,
+        usuario: str,
+        temperatura: float,
+        max_tokens: int,
+        json_mode: bool = False,
+    ) -> ResultadoLLM:
+        if not self.esta_configurado:
+            raise ProveedorIAError("No hay API key de OpenRouter configurada.")
+
+        url = f"{self.base_url}/chat/completions"
+        cuerpo: dict[str, Any] = {
+            "model": self.modelo,
+            "messages": [
+                {"role": "system", "content": sistema},
+                {"role": "user", "content": usuario},
+            ],
+            "temperature": temperatura,
+            "max_tokens": max_tokens,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        inicio = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as cliente:
+                resp = await cliente.post(url, json=cuerpo, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.HTTPError as exc:
+            raise ProveedorIAError(f"Fallo de conexión con OpenRouter: {exc}") from exc
+
+        latencia = time.perf_counter() - inicio
+        eleccion = (data.get("choices") or [{}])[0]
+        texto = ((eleccion.get("message") or {}).get("content") or "").strip()
+        uso = data.get("usage", {}) or {}
+
+        return ResultadoLLM(
+            texto=texto,
+            tokens_entrada=int(uso.get("prompt_tokens", 0) or 0),
+            tokens_salida=int(uso.get("completion_tokens", 0) or 0),
+            latencia_segundos=round(latencia, 4),
+            modelo=self.modelo,
+            proveedor=self.nombre,
+            payload_crudo=data,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Registro / fábrica
 # ---------------------------------------------------------------------------
 
@@ -342,21 +654,36 @@ _REGISTRO: dict[str, ProveedorIA] = {}
 
 def obtener_proveedor(nombre: str) -> ProveedorIA:
     """Devuelve el proveedor pedido o resuelve "auto" por configuración."""
-    clave = nombre.lower()
+    clave = nombre.lower().strip()
     if clave == "auto":
         clave = settings.ai_default_provider
 
     if clave not in _REGISTRO:
-        if clave == "gemini":
+        if clave == "groq":
+            _REGISTRO[clave] = GroqProvider()
+        elif clave == "gemini":
             _REGISTRO[clave] = GeminiProvider()
         elif clave == "deepseek":
             _REGISTRO[clave] = DeepSeekProvider()
+        elif clave == "openai":
+            _REGISTRO[clave] = OpenAIProvider()
+        elif clave == "anthropic":
+            _REGISTRO[clave] = AnthropicProvider()
+        elif clave == "openrouter":
+            _REGISTRO[clave] = OpenRouterProvider()
         else:
             raise ProveedorIAError(f"Proveedor IA desconocido: {nombre!r}")
     return _REGISTRO[clave]
 
 
 def proveedores_disponibles() -> list[str]:
-    """Lista de proveedores con credenciales configuradas (útil para healthcheck)."""
-    candidatos = [GeminiProvider(), DeepSeekProvider()]
+    """Lista de proveedores con credenciales configuradas."""
+    candidatos = [
+        GroqProvider(),
+        GeminiProvider(),
+        DeepSeekProvider(),
+        OpenAIProvider(),
+        AnthropicProvider(),
+        OpenRouterProvider(),
+    ]
     return [p.nombre for p in candidatos if p.esta_configurado]

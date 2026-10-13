@@ -439,3 +439,133 @@ BUG-05).
 
 (Bugs encontrados, decisiones tomadas, ajustes para próxima sesión.)
 ```
+
+## Sesión 8 — Finalización del Modelo B v2 (150M)
+
+**Fecha**: 2026-09-02
+**Lugar**: Lightning AI Studio (T4 GPU)
+
+### Lo que se hizo
+Se reanudó y finalizó el entrenamiento del Modelo B v2 (150M). El modelo terminó exitosamente sus 15,000 pasos sobre el corpus ampliado de 882K ejemplos.
+
+### Resultado
+- **Loss final:** 1.41 (Superó la meta de 1.5 - 1.8)
+- **Checkpoint:** Guardado en 	raining/checkpoints/B_sft_15k/checkpoint_ultimo.pt
+
+![Finalización 150M](capturas/termino_150m.png)
+
+### Próximos pasos
+- Iniciar la Fase A del Modelo C (350M).
+
+---
+
+## Sesión 9 — Inicio del Modelo Maestro C (350M) a 45K pasos
+
+**Fecha**: 2026-09-04
+**Lugar**: Lightning AI Studio (T4 GPU)
+
+### Lo que se hizo
+- Se unificó el plan de entrenamiento del Modelo C (350M) para no depender de configuraciones segmentadas (5k, 10k, etc.).
+- Se creó una configuración maestra (`c_350m_master.yaml`) con el objetivo total de **45,000 pasos** para la tesis.
+- Se resolvió un error de `CUDA out of memory` causado por procesos zombis superpuestos usando `pkill -f run_fase`.
+
+### Resultado
+- El entrenamiento del Modelo Estrella (350M) inició limpiamente y reanudó desde el paso 851.
+- **Configuración:** `batch=1`, `grad_accum=16`, `lr=0.0003`, usando el corpus ampliado.
+- El proceso corre en `nohup` preparado para reanudarse con el mismo comando exacto conforme se agreguen créditos.
+
+### Próximos pasos
+- Monitorear el avance hacia los 45,000 pasos.
+- Una vez finalizado, iniciar pruebas de integración con Android Studio (evaluación estilo Anthropic/Antigravity).
+
+---
+
+## Sesión 10 — Hito 14.8K Pasos Modelo C (350M) y Plan de Validación
+
+**Fecha**: 2026-09-13
+**Lugar**: Lightning AI Studio (T4 GPU)
+
+### Lo que se hizo
+- Monitoreo del entrenamiento desatendido del Modelo C (350M). El servidor se mantuvo estable ejecutando continuamente.
+- El modelo alcanzó y superó los **14,800 pasos**.
+- **Decisión metodológica para la tesis:** Por restricciones presupuestarias y de tiempo de entrega, se define el cierre del entrenamiento del Modelo C en este rango (~15K - 20K pasos). Esto permite una comparación científica válida y simétrica entre escalas:
+  1. Modelo A: 88M parámetros (5,000 pasos) — descargado.
+  2. Modelo B: 150M parámetros (15,000 pasos, loss 1.41) — listo para descargar.
+  3. Modelo C: 350M parámetros (~15,000+ pasos, loss < 1.97) — hito alcanzado.
+
+### Resultado
+- **Paso actual:** 14,825 pasos.
+- **Último checkpoint guardado:** Paso 14,800 en `training/checkpoints/C_350m_Final/checkpoint_ultimo.pt`.
+- **Loss:** 1.9655 (rompió exitosamente la barrera de 2.0).
+- **Velocidad:** 0.11 pasos/s.
+
+![Avance 14.8K Modelo C 350M](capturas/avance_350m_14k.png)
+
+### Próximos pasos para mañana
+1. Obtener el último checkpoint alcanzado del Modelo C (350M) y Modelo B (150M).
+2. Descargar ambos checkpoints al equipo local (con GPU NVIDIA RTX 2050).
+3. Renovar token de GitHub y sincronizar todos los cambios locales y remotos (`git push`).
+4. Iniciar fase de validación experimental y comparativa:
+   - Benchmark EduCodeEval (código pedagógico, bugs, diseño).
+   - Inferencia cualitativa y conexión con la aplicación de Android Studio.
+
+---
+
+## Sesión 11 — Hito 18.5K Pasos (Loss 1.86) y Enfoque Cuasi-Experimental de la Tesis (ANCOVA)
+
+**Fecha**: 2026-09-14
+**Lugar**: Lightning AI Studio (T4 GPU)
+
+### Lo que se hizo
+- Monitoreo del avance final del Modelo C (350M) con balance de créditos (~2 créditos restantes).
+- El modelo alcanzó los **18,525 pasos**, consolidando su curva de aprendizaje hacia los ~19,000 pasos.
+- **Clarificación metodológica central de la investigación:**
+  - La tesis **no** consiste en entrenar el modelo más grande por vanidad técnica, sino en evaluar el impacto pedagógico del artefacto IA como tutor en el aprendizaje de programación en estudiantes universitarios.
+  - Diseño metodológico: **Cuasi-experimental con pretest-postest y análisis ANCOVA** (controlando el nivel inicial del estudiante como covariable).
+  - El modelo de 350M a 18.5K-19K pasos (con loss en 1.86) ya cuenta con la especialización sintáctica y didáctica requerida para las 20 a 40 preguntas de prueba del estudio.
+
+### Resultado
+- **Paso actual:** 18,525 pasos.
+- **Último checkpoint guardado:** Paso 18,500 en `training/checkpoints/C_350m_Final/checkpoint_ultimo.pt`.
+- **Loss:** 1.8670 (descenso notable desde 1.9655).
+- **Velocidad:** 0.08 pasos/s.
+
+![Avance 18.5K Modelo C 350M](capturas/avance_350m_18k.png)
+
+### Protocolo de cierre y preparación de la prueba
+1. Detener el proceso con `pkill -f run_fase` antes de agotar el último crédito (para preservar acceso a la máquina).
+2. Descargar checkpoints finales:
+   - Modelo B (150M @ 15K pasos): `training/checkpoints/B_sft_15k/checkpoint_ultimo.pt`.
+   - Modelo C (350M @ 18.5K-19K pasos): `training/checkpoints/C_350m_Final/checkpoint_ultimo.pt`.
+3. Validar localmente en GPU RTX 2050 para inferencia en tiempo real.
+4. Diseñar y ejecutar el instrumento de 20-40 preguntas/problemas para la recolección de datos del ANCOVA.
+
+---
+
+## Sesión 12 — Cierre Oficial del Modelo C (350M @ 18,600 Pasos, Loss 1.8060)
+
+**Fecha**: 2026-09-14
+**Lugar**: Lightning AI Studio (T4 GPU)
+
+### Lo que se hizo
+- Se ejecutó `pkill -f run_fase` de manera controlada para finalizar la etapa de entrenamiento en la nube y preservar los créditos restantes.
+- La detención fue limpia y sincronizada: el checkpoint del paso 18,600 se escribió en disco inmediatamente antes de la interrupción.
+
+### Resultado
+- **Paso final oficial:** 18,600 pasos.
+- **Loss final:** **1.8060** (máxima convergencia alcanzada en el proyecto para 350M).
+- **Checkpoint final:** `training/checkpoints/C_350m_Final/checkpoint_ultimo.pt`.
+
+![Cierre Oficial 18.6K Modelo C 350M](capturas/termino_350m_18600.png)
+
+### Inventario de Modelos Completados para la Tesis
+| Modelo | Parámetros | Pasos | Loss Final | Ubicación | Estado |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Modelo A** | 88M | 5,000 | ~3.94 | Local (`training/checkpoints/`) | Descargado |
+| **Modelo B v2** | 150M | 15,000 | 1.4106 | Lightning (`B_sft_15k/`) | Listo para descargar |
+| **Modelo C** | 350M | 18,600 | 1.8060 | Lightning (`C_350m_Final/`) | Listo para descargar |
+
+### Próximos pasos inmediatos
+1. Descargar ambos checkpoints a la máquina local (carpeta `training/checkpoints/`).
+2. Actualizar credenciales Git y realizar commit/push general de documentación.
+3. Evaluación y mejoras en la aplicación de escritorio (`app-desktop` Flutter) para el experimento pedagógico.

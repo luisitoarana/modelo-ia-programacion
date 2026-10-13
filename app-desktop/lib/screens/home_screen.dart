@@ -13,12 +13,13 @@ import '../widgets/terminal_view.dart';
 import '../widgets/command_palette.dart';
 import '../widgets/atajos_overlay.dart';
 import '../widgets/onboarding.dart';
-import 'rag_screen.dart';
+import '../widgets/app_top_bar.dart';
+import '../widgets/app_status_bar.dart';
 import 'settings_screen.dart';
 
 /// Pestañas principales de la app.
 /// El orden importa: se usa como índice del IndexedStack.
-enum VistaPrincipal { chat, explicar, code, proyecto, terminal, rag }
+enum VistaPrincipal { chat, explicar, code, proyecto, terminal }
 
 // ──────────────────────── Intents para atajos ────────────────────────
 
@@ -50,11 +51,24 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ChatProvider>().cargarConversaciones();
+      final usuarioId = context.read<AuthProvider>().usuario?.id;
+      if (usuarioId != null) context.read<SettingsProvider>().activarPerfil(usuarioId);
+      context.read<SettingsProvider>().setAsignacionEstudio(const {'asignado': false});
+      _cargarAsignacionEstudio();
       // Onboarding la primera vez.
       mostrarOnboardingSiPrimeraVez(context);
     });
     // Escucha cambios de vista solicitados desde el command palette.
     eventoCambioVista.addListener(_onCambioVistaDesdePalette);
+  }
+
+  Future<void> _cargarAsignacionEstudio() async {
+    try {
+      final datos = await context.read<AuthProvider>().api.obtenerAsignacionEstudio();
+      if (mounted) context.read<SettingsProvider>().setAsignacionEstudio(datos);
+    } catch (_) {
+      // Los ajustes locales siguen disponibles si el servidor no responde.
+    }
   }
 
   @override
@@ -165,26 +179,44 @@ class _HomeScreenState extends State<HomeScreen> {
           autofocus: true,
           child: Scaffold(
             backgroundColor: p.bg,
-            body: Row(
+            body: Column(
               children: [
-                Sidebar(
+                AppTopBar(
                   vista: _vista,
-                  colapsado: _sidebarColapsado,
-                  onToggleColapsado: _toggleSidebar,
-                  onCambiarVista: (v) => setState(() => _vista = v),
+                  onAbrirPalette: () => showCommandPalette(context),
+                  onAbrirAtajos: () => showAtajosOverlay(context),
+                  onAbrirSettings: _abrirSettings,
+                  onToggleSidebar: _toggleSidebar,
+                  sidebarColapsado: _sidebarColapsado,
                 ),
                 Expanded(
-                  child: IndexedStack(
-                    index: _vista.index,
-                    children: const [
-                      ChatView(),
-                      ExplicarView(),
-                      CodeView(),
-                      ProyectoView(),
-                      TerminalView(),
-                      RagScreen(),
+                  child: Row(
+                    children: [
+                      Sidebar(
+                        vista: _vista,
+                        colapsado: _sidebarColapsado,
+                        onToggleColapsado: _toggleSidebar,
+                        onCambiarVista: (v) => setState(() => _vista = v),
+                      ),
+                      Expanded(
+                        child: IndexedStack(
+                          index: _vista.index,
+                          children: const [
+                            ChatView(),
+                            ExplicarView(),
+                            CodeView(),
+                            ProyectoView(),
+                            TerminalView(),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
+                ),
+                AppStatusBar(
+                  vista: _vista,
+                  onAbrirPalette: () => showCommandPalette(context),
+                  onAbrirSettings: _abrirSettings,
                 ),
               ],
             ),
