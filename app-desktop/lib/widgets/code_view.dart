@@ -46,6 +46,8 @@ import 'terminal_view.dart';
 ///   - **Botón Ejecutar grande** y siempre visible.
 ///   - **Detección automática de lenguaje** por extensión.
 
+enum ModoPanelDerecho { ia, archivos }
+
 class CodeView extends StatefulWidget {
   const CodeView({super.key});
 
@@ -63,9 +65,11 @@ class _CodeViewState extends State<CodeView> {
   bool _ejecutando = false;
   final List<String> _terminalLog = [];   // historial libre
   final List<String> _problemas = [];      // futuro: linting
+  bool _panelInferiorMaximizado = false;
+  double _altoPanelInferiorPrevio = 220;
 
-  // Sidebar de archivos (colapsable) — ahora a la DERECHA.
-  bool _sidebarArchivos = true;
+  // Cajón derecho unificado (Asistente IA + Archivos del Proyecto)
+  ModoPanelDerecho _modoPanelDerecho = ModoPanelDerecho.ia;
 
   // Carpeta abierta como "proyecto" (tipo Open Folder de VS Code).
   String? _carpetaRaiz;
@@ -73,8 +77,8 @@ class _CodeViewState extends State<CodeView> {
   bool _cargandoArbol = false;
 
   // GlobalKey para acceder al State de la TerminalView embebida (para
-  // sincronizar su CWD con el archivo activo).
-  final GlobalKey<State<TerminalView>> _terminalKey = GlobalKey();
+  // sincronizar su CWD con el archivo activo y ejecutar comandos interactivos).
+  final GlobalKey<TerminalViewState> _terminalKey = GlobalKey();
 
   // Panel IA Lateral estilo Cursor / Antigravity / GLM (Split View)
   bool _panelIaLateral = true;
@@ -90,12 +94,8 @@ class _CodeViewState extends State<CodeView> {
   bool _iaCambioPendiente = false;
 
   // ── Tamaños dinámicos de los paneles (redimensionables) ─────────────
-  /// Ancho del panel EXPLORADOR (sidebar izquierdo).
-  double _anchoExplorador = 260;
   /// Alto del panel inferior (output/terminal/problemas).
   double _altoPanelInferior = 220;
-  static const double _minAnchoExplorador = 180;
-  static const double _maxAnchoExplorador = 500;
   static const double _minAltoPanelInferior = 80;
   static const double _maxAltoPanelInferior = 600;
 
@@ -105,6 +105,97 @@ class _CodeViewState extends State<CodeView> {
     // Sin tabs por defecto — el usuario decide qué archivo abrir.
     // Mostramos un empty state profesional cuando no hay nada abierto.
     _activa = -1;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final settings = Provider.of<SettingsProvider>(context);
+    if (settings.carpetaProyecto != _carpetaRaiz) {
+      _carpetaRaiz = settings.carpetaProyecto;
+      if (_carpetaRaiz != null) {
+        _refrescarArbolYAutoAbrir();
+      } else {
+        setState(() {
+          _arbol = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _abrirRutaDirecta(String ruta) async {
+    final nombre = ruta.split(Platform.pathSeparator).last;
+    final ext = nombre.contains('.') ? nombre.split('.').last.toLowerCase() : '';
+    await _abrirDesdeArbol(NodoArchivo.archivo(
+      nombre: nombre,
+      ruta: ruta,
+      lenguaje: lenguajeDeExtension(ext),
+    ));
+  }
+
+  Future<void> _refrescarArbolYAutoAbrir() async {
+    if (_carpetaRaiz == null) return;
+    await _refrescarArbol();
+    if (_tabs.isEmpty && mounted) {
+      final sep = Platform.pathSeparator;
+      final mainPy = File('$_carpetaRaiz${sep}main.py');
+      final appPy = File('$_carpetaRaiz${sep}app.py');
+      if (await mainPy.exists()) {
+        await _abrirRutaDirecta(mainPy.path);
+      } else if (await appPy.exists()) {
+        await _abrirRutaDirecta(appPy.path);
+      } else {
+        try {
+          final dir = Directory(_carpetaRaiz!);
+          await for (final entidad in dir.list(followLinks: false)) {
+            if (entidad is File && entidad.path.endsWith('.py')) {
+              await _abrirRutaDirecta(entidad.path);
+              break;
+            }
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
+  void _ejecutarEnTerminalInteractiva([String? comandoPersonalizado]) {
+    final t = _tabActiva;
+    setState(() => _panelActivo = PanelInferior.terminal);
+    final nombreArchivo = t?.nombre ?? 'main.py';
+    final cmd = comandoPersonalizado ?? 'python "$nombreArchivo"';
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _terminalKey.currentState?.ejecutarComando(cmd);
+    });
+  }
+
+  Future<void> _alHacerClicEjecutar() async {
+    if (_ejecutando) return;
+    if (_tabActiva == null) {
+      if (_carpetaRaiz != null) {
+        final sep = Platform.pathSeparator;
+        final mainPy = File('$_carpetaRaiz${sep}main.py');
+        final appPy = File('$_carpetaRaiz${sep}app.py');
+        if (await mainPy.exists()) {
+          await _abrirRutaDirecta(mainPy.path);
+          await _ejecutar();
+          return;
+        } else if (await appPy.exists()) {
+          await _abrirRutaDirecta(appPy.path);
+          await _ejecutar();
+          return;
+        }
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Abre o selecciona un archivo de código Python (.py) para ejecutar.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+    await _ejecutar();
   }
 
   @override
@@ -285,6 +376,7 @@ class _CodeViewState extends State<CodeView> {
       );
       if (ruta == null) return;
       if (!mounted) return;
+      context.read<SettingsProvider>().setCarpetaProyecto(ruta);
       setState(() {
         _carpetaRaiz = ruta;
         _cargandoArbol = true;
@@ -292,7 +384,7 @@ class _CodeViewState extends State<CodeView> {
         _iaConversacionId = null;
         _iaCambioPendiente = false;
       });
-      await _refrescarArbol();
+      await _refrescarArbolYAutoAbrir();
     } catch (_) {}
   }
 
@@ -1596,9 +1688,7 @@ class _CodeViewState extends State<CodeView> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final disponible = constraints.maxWidth;
-              final maxExplorador = (disponible * 0.22).clamp(160.0, _maxAnchoExplorador);
-              final maxIa = (disponible * 0.35).clamp(240.0, _maxAnchoPanelIa);
-              final anchoExplorador = _anchoExplorador.clamp(160.0, maxExplorador);
+              final maxIa = (disponible * 0.45).clamp(240.0, _maxAnchoPanelIa);
               final anchoIa = _anchoPanelIa.clamp(240.0, maxIa);
 
               return Container(
@@ -1606,23 +1696,7 @@ class _CodeViewState extends State<CodeView> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // ── Lado IZQUIERDO: EXPLORADOR (Estilo VS Code / Cursor) ──
-                    if (_sidebarArchivos)
-                      SizedBox(
-                        width: anchoExplorador,
-                        child: _sidebar(p),
-                      ),
-                    // ── Divisor vertical arrastrable (explorador ↔ editor) ─
-                    if (_sidebarArchivos)
-                      DivisorVertical(
-                        onDrag: (delta) {
-                          setState(() {
-                            _anchoExplorador = (_anchoExplorador + delta)
-                                .clamp(_minAnchoExplorador, _maxAnchoExplorador);
-                          });
-                        },
-                      ),
-                    // ── Centro: EDITOR + PANEL INFERIOR ─────────────
+                    // ── Centro: EDITOR + PANEL INFERIOR (Ocupa todo el ancho central) ──
                     Expanded(
                       child: Column(
                         children: [
@@ -1649,7 +1723,7 @@ class _CodeViewState extends State<CodeView> {
                         ],
                       ),
                     ),
-                    // ── Lado DERECHO: PANEL ASISTENTE IA (Estilo Cursor / Antigravity) ──
+                    // ── Lado DERECHO: CAJÓN UNIFICADO (Asistente IA + Archivos del Proyecto) ──
                     if (_panelIaLateral)
                       DivisorVertical(
                         onDrag: (delta) {
@@ -1662,7 +1736,7 @@ class _CodeViewState extends State<CodeView> {
                     if (_panelIaLateral)
                       SizedBox(
                         width: anchoIa,
-                        child: _panelIaLateralWidget(p),
+                        child: _cajonDerechoUnificado(p),
                       ),
                   ],
                 ),
@@ -1732,20 +1806,6 @@ class _CodeViewState extends State<CodeView> {
 
   // ──────────── Sidebar de archivos ────────────
 
-  Widget _sidebar(AppPalette p) {
-    return Container(
-      color: p.surface,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Solo EXPLORADOR — la lista de archivos abiertos se ve
-          // arriba como tabs, no se duplica aquí.
-          Expanded(child: _seccionExplorador(p)),
-        ],
-      ),
-    );
-  }
-
   Widget _seccionExplorador(AppPalette p) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1775,8 +1835,8 @@ class _CodeViewState extends State<CodeView> {
                   _miniIcon(p, Icons.refresh, 'Refrescar', _refrescarArbol),
                 ],
                 const SizedBox(width: 2),
-                _miniIcon(p, Icons.menu_open, 'Ocultar sidebar',
-                    () => setState(() => _sidebarArchivos = false)),
+                _miniIcon(p, Icons.close, 'Cerrar panel',
+                    () => setState(() => _panelIaLateral = false)),
                 const SizedBox(width: 4),
               ],
             ),
@@ -2078,12 +2138,25 @@ class _CodeViewState extends State<CodeView> {
           _miniIcon(p, Icons.add, 'Nuevo', () => _nuevoArchivo()),
           _miniIcon(p, Icons.folder_open, 'Abrir', _abrirArchivos),
           const SizedBox(width: 4),
-          // Toggle del sidebar EXPLORADOR (ahora a la derecha).
+          // Toggle del panel de archivos (en el cajón derecho unificado).
           _miniIcon(
             p,
-            _sidebarArchivos ? Icons.view_sidebar : Icons.view_sidebar_outlined,
-            _sidebarArchivos ? 'Ocultar explorador' : 'Mostrar explorador',
-            () => setState(() => _sidebarArchivos = !_sidebarArchivos),
+            (_panelIaLateral && _modoPanelDerecho == ModoPanelDerecho.archivos)
+                ? Icons.folder
+                : Icons.folder_outlined,
+            (_panelIaLateral && _modoPanelDerecho == ModoPanelDerecho.archivos)
+                ? 'Ocultar archivos'
+                : 'Mostrar archivos',
+            () {
+              setState(() {
+                if (_panelIaLateral && _modoPanelDerecho == ModoPanelDerecho.archivos) {
+                  _panelIaLateral = false;
+                } else {
+                  _panelIaLateral = true;
+                  _modoPanelDerecho = ModoPanelDerecho.archivos;
+                }
+              });
+            },
           ),
           const SizedBox(width: 6),
         ],
@@ -2282,211 +2355,287 @@ class _CodeViewState extends State<CodeView> {
 
   Widget _toolbar(AppPalette p) {
     final t = _tabActiva;
+    final esOscuro = Theme.of(context).brightness == Brightness.dark;
     final settings = context.watch<SettingsProvider>();
     final ejecutable = t != null ? lenguajeEjecutable(t.lenguaje) : null;
-    final puedeEjecutar = ejecutable != null && !_ejecutando;
+    final puedeEjecutar = !_ejecutando && (t != null || _carpetaRaiz != null);
     return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      height: 38,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: p.surface,
-        border: Border(top: BorderSide(color: p.borderSoft)),
+        color: esOscuro ? const Color(0xFF11131A) : p.surface,
+        border: Border(top: BorderSide(color: esOscuro ? const Color(0xFF1C202C) : p.borderSoft)),
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
-        children: [
-          // BOTÓN EJECUTAR — terracota con sombra tintada en primary
-          Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              boxShadow: puedeEjecutar
-                  ? [
-                      BoxShadow(
-                        color: p.primary.withValues(alpha: 0.35),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Material(
-              color: puedeEjecutar ? p.primary : p.surface3,
-              borderRadius: BorderRadius.circular(8),
-              child: InkWell(
-                onTap: puedeEjecutar ? _ejecutar : null,
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                  child: Row(
-                    children: [
-                      if (_ejecutando)
-                        SizedBox(
-                          height: 14, width: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 1.8,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                                puedeEjecutar ? Colors.white : p.subtle),
+          children: [
+            // BOTÓN EJECUTAR — Estilo VS Code en tono Esmeralda brillante
+            Container(
+              height: 28,
+              decoration: BoxDecoration(
+                color: puedeEjecutar ? const Color(0x2610B981) : (esOscuro ? const Color(0xFF181B24) : p.surface2),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: puedeEjecutar ? const Color(0x7310B981) : (esOscuro ? const Color(0xFF282E40) : p.border),
+                ),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+                child: InkWell(
+                  onTap: puedeEjecutar ? _alHacerClicEjecutar : null,
+                  borderRadius: BorderRadius.circular(6),
+                  hoverColor: const Color(0x4010B981),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_ejecutando)
+                          const SizedBox(
+                            height: 12,
+                            width: 12,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.8,
+                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF34D399)),
+                            ),
+                          )
+                        else
+                          Icon(
+                            Icons.play_arrow_rounded,
+                            size: 15,
+                            color: puedeEjecutar ? const Color(0xFF34D399) : p.subtle,
                           ),
-                        )
-                      else
-                        Icon(Icons.play_arrow_rounded,
-                            size: 16,
-                            color: puedeEjecutar ? Colors.white : p.subtle),
-                      const SizedBox(width: 6),
-                      Text(
-                        _ejecutando ? 'Ejecutando…' : 'Ejecutar',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.1,
-                          color: puedeEjecutar ? Colors.white : p.subtle,
-                        ),
-                      ),
-                      if (ejecutable != null) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          ejecutable.toUpperCase(),
+                        const SizedBox(width: 5),
+                        Text(
+                          _ejecutando ? 'Ejecutando…' : '▶ Ejecutar (F5)',
                           style: TextStyle(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w700,
-                            color: puedeEjecutar ? Colors.white : p.subtle,
-                            fontFamily: AppFonts.monoFallback.first,
-                            fontFamilyFallback: AppFonts.monoFallback,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.1,
+                            color: puedeEjecutar ? const Color(0xFF34D399) : p.subtle,
                           ),
                         ),
-                      ),
+                        if (ejecutable != null) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: Text(
+                              ejecutable.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: puedeEjecutar ? const Color(0xFF34D399) : p.subtle,
+                                fontFamily: AppFonts.monoFallback.first,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          // Guardar — ubicado inmediatamente junto a Ejecutar para un flujo natural
-          _btnSec(
-            p,
-            Icons.save_outlined,
-            'Guardar',
-            p.text,
-            t != null,
-            'Guardar archivo (Ctrl+S)',
-            _guardar,
-          ),
-          const SizedBox(width: 8),
-          // Explicar a fondo con IA
-          _btnSec(
-            p,
-            Icons.psychology_outlined,
-            'Explicar',
-            p.primary,
-            (t != null && t.contenido.trim().isNotEmpty) || _carpetaRaiz != null,
-            (t != null && (t.lenguaje == 'markdown' || t.nombre.toLowerCase().endsWith('.md') || t.nombre.toLowerCase().endsWith('.txt')))
-                ? 'Analizar y resumir este documento o especificación técnica'
-                : 'Explicar el código o sistema paso a paso con andamiaje pedagógico',
-            () {
-              final esDoc = t != null && (t.lenguaje == 'markdown' ||
-                  t.nombre.toLowerCase().endsWith('.md') ||
-                  t.nombre.toLowerCase().endsWith('.txt'));
-              if (esDoc) {
-                _consultarIa(
-                  'Analiza en detalle este documento ("${t.nombre}"): resume su propósito, sus secciones o requerimientos principales y explica claramente su contenido pedagógico o técnico.',
-                );
-              } else {
-                _consultarIa(
-                  'Explica en detalle qué hace este código o sistema: propósito general, arquitectura lógica paso a paso y variables clave.',
-                );
-              }
-            },
-          ),
-          const SizedBox(width: 8),
-          // Detectar errores / bugs
-          _btnSec(
-            p,
-            Icons.bug_report_outlined,
-            'Detectar Errores',
-            AppColors.danger,
-            (t != null && t.contenido.trim().isNotEmpty) || _carpetaRaiz != null,
-            'Auditar posibles errores, excepciones y casos límite',
-            () {
-              _consultarIa(
-                'Audita a fondo este código buscando errores sintácticos, bugs lógicos, excepciones posibles (ZeroDivisionError, IndexError, etc.) y casos límite.',
-              );
-            },
-          ),
-          const SizedBox(width: 8),
-          // Retos y Módulos Curriculares
-          _btnSec(
-            p,
-            Icons.school_outlined,
-            'Retos Curriculares',
-            p.primary,
-            true,
-            'Explorar retos prácticos del currículo (${CurriculumCatalog.nombreNivel(settings.nivelModulo)})',
-            () => _mostrarDialogoRetosCurriculares(context, p, settings),
-          ),
-          if (t != null && t.contenido != t.original) ...[
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
+            // BOTÓN EJECUTAR EN TERMINAL INTERACTIVA
+            Container(
+              height: 28,
+              decoration: BoxDecoration(
+                color: esOscuro ? const Color(0xFF181B24) : p.surface2,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: esOscuro ? const Color(0xFF282E40) : p.border,
+                ),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+                child: Tooltip(
+                  message: 'Ejecutar script en Terminal interactiva (ideal para input())',
+                  child: InkWell(
+                    onTap: (t != null || _carpetaRaiz != null) ? () => _ejecutarEnTerminalInteractiva() : null,
+                    borderRadius: BorderRadius.circular(6),
+                    hoverColor: p.primary.withValues(alpha: 0.15),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.terminal_rounded,
+                            size: 14,
+                            color: (t != null || _carpetaRaiz != null) ? p.primary : p.subtle,
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            'Terminal',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.1,
+                              color: (t != null || _carpetaRaiz != null) ? p.text : p.subtle,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            // Guardar — compacto 28px
             _btnSec(
               p,
-              Icons.difference_outlined,
-              'Ver Diff',
-              AppColors.info,
-              true,
-              'Comparar cambios sin guardar respecto al original',
+              Icons.save_outlined,
+              'Guardar',
+              const Color(0xFFF8FAFC),
+              t != null,
+              'Guardar archivo (Ctrl+S)',
+              _guardar,
+            ),
+            const SizedBox(width: 6),
+            // Explicar a fondo con IA
+            _btnSec(
+              p,
+              Icons.psychology_outlined,
+              'Explicar',
+              const Color(0xFF6366F1),
+              (t != null && t.contenido.trim().isNotEmpty) || _carpetaRaiz != null,
+              (t != null && (t.lenguaje == 'markdown' || t.nombre.toLowerCase().endsWith('.md') || t.nombre.toLowerCase().endsWith('.txt')))
+                  ? 'Analizar y resumir este documento o especificación técnica'
+                  : 'Explicar el código o sistema paso a paso con andamiaje pedagógico',
               () {
-                DiffModal.mostrar(
-                  context,
-                  codigoOriginal: t.original,
-                  codigoNuevo: t.contenido,
-                  nombreArchivo: t.nombre,
-                  onAplicar: (nuevo) {
-                    setState(() {
-                      t.contenido = nuevo;
-                      t.controller(p).text = nuevo;
-                    });
-                  },
+                final esDoc = t != null && (t.lenguaje == 'markdown' ||
+                    t.nombre.toLowerCase().endsWith('.md') ||
+                    t.nombre.toLowerCase().endsWith('.txt'));
+                if (esDoc) {
+                  _consultarIa(
+                    'Analiza en detalle este documento ("${t.nombre}"): resume su propósito, sus secciones o requerimientos principales y explica claramente su contenido pedagógico o técnico.',
+                  );
+                } else {
+                  _consultarIa(
+                    'Explica en detalle qué hace este código o sistema: propósito general, arquitectura lógica paso a paso y variables clave.',
+                  );
+                }
+              },
+            ),
+            const SizedBox(width: 6),
+            // Detectar errores / bugs
+            _btnSec(
+              p,
+              Icons.bug_report_outlined,
+              'Detectar Errores',
+              const Color(0xFFEF4444),
+              (t != null && t.contenido.trim().isNotEmpty) || _carpetaRaiz != null,
+              'Auditar posibles errores, excepciones y casos límite',
+              () {
+                _consultarIa(
+                  'Audita a fondo este código buscando errores sintácticos, bugs lógicos, excepciones posibles (ZeroDivisionError, IndexError, etc.) y casos límite.',
                 );
               },
             ),
-          ],
-          const SizedBox(width: 16),
-          // Info derecha — agrupada con un separador vertical sutil.
-          if (t != null) ...[
-            Text(
-              '${t.contenido.split("\n").length} líneas',
-              style: TextStyle(
-                fontSize: 11,
-                color: p.subtle,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
+            const SizedBox(width: 6),
+            // Retos y Módulos Curriculares
+            _btnSec(
+              p,
+              Icons.school_outlined,
+              'Retos Curriculares',
+              const Color(0xFF38BDF8),
+              true,
+              'Explorar retos prácticos del currículo (${CurriculumCatalog.nombreNivel(settings.nivelModulo)})',
+              () => _mostrarDialogoRetosCurriculares(context, p, settings),
             ),
-            const SizedBox(width: 10),
-            BadgeLenguaje(lenguaje: t.lenguaje),
-            const SizedBox(width: 10),
-            Container(width: 1, height: 16, color: p.borderSoft),
-            const SizedBox(width: 8),
+            if (t != null && t.contenido != t.original) ...[
+              const SizedBox(width: 6),
+              _btnSec(
+                p,
+                Icons.difference_outlined,
+                'Ver Diff',
+                const Color(0xFF38BDF8),
+                true,
+                'Comparar cambios sin guardar respecto al original',
+                () {
+                  DiffModal.mostrar(
+                    context,
+                    codigoOriginal: t.original,
+                    codigoNuevo: t.contenido,
+                    nombreArchivo: t.nombre,
+                    onAplicar: (nuevo) {
+                      setState(() {
+                        t.contenido = nuevo;
+                        t.controller(p).text = nuevo;
+                      });
+                    },
+                  );
+                },
+              ),
+            ],
+            const SizedBox(width: 12),
+            if (t != null) ...[
+              Text(
+                '${t.contenido.split("\n").length} líneas',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Color(0xFF64748B),
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(width: 8),
+              BadgeLenguaje(lenguaje: t.lenguaje),
+              const SizedBox(width: 8),
+              Container(width: 1, height: 16, color: const Color(0xFF282E40)),
+              const SizedBox(width: 8),
+            ],
+            // Controles rápidos del Cajón Derecho Unificado
+            _btnSec(
+              p,
+              (_panelIaLateral && _modoPanelDerecho == ModoPanelDerecho.ia)
+                  ? Icons.auto_awesome_rounded
+                  : Icons.auto_awesome_outlined,
+              'Asistente IA',
+              const Color(0xFF6366F1),
+              true,
+              'Abrir o alternar Asistente IA',
+              () {
+                setState(() {
+                  if (_panelIaLateral && _modoPanelDerecho == ModoPanelDerecho.ia) {
+                    _panelIaLateral = false;
+                  } else {
+                    _panelIaLateral = true;
+                    _modoPanelDerecho = ModoPanelDerecho.ia;
+                  }
+                });
+              },
+            ),
+            const SizedBox(width: 6),
+            _btnSec(
+              p,
+              (_panelIaLateral && _modoPanelDerecho == ModoPanelDerecho.archivos)
+                  ? Icons.folder_open_rounded
+                  : Icons.folder_outlined,
+              'Archivos',
+              const Color(0xFF38BDF8),
+              true,
+              'Ver archivos del proyecto en el panel derecho',
+              () {
+                setState(() {
+                  if (_panelIaLateral && _modoPanelDerecho == ModoPanelDerecho.archivos) {
+                    _panelIaLateral = false;
+                  } else {
+                    _panelIaLateral = true;
+                    _modoPanelDerecho = ModoPanelDerecho.archivos;
+                  }
+                });
+              },
+            ),
           ],
-          // Toggle del Panel Lateral de IA (Side-by-Side)
-          _btnSec(
-            p,
-            _panelIaLateral ? Icons.smart_toy_rounded : Icons.smart_toy_outlined,
-            'Asistente IA',
-            _panelIaLateral ? p.primary : p.subtle,
-            true,
-            _panelIaLateral ? 'Ocultar panel de IA' : 'Abrir panel de IA (Side-by-Side)',
-            () => setState(() => _panelIaLateral = !_panelIaLateral),
-          ),
-        ],
         ),
       ),
     );
@@ -2494,29 +2643,51 @@ class _CodeViewState extends State<CodeView> {
 
   Widget _btnSec(AppPalette p, IconData icono, String label, Color color,
       bool habilitado, String tip, VoidCallback onTap) {
+    final esOscuro = p.codeBg.computeLuminance() < 0.5;
     return Tooltip(
       message: tip,
-      waitDuration: const Duration(milliseconds: 400),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(7),
-        child: InkWell(
-          onTap: habilitado ? onTap : null,
-          borderRadius: BorderRadius.circular(7),
-          hoverColor: p.surface2.withValues(alpha: 0.6),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icono, size: 14, color: habilitado ? color : p.subtle),
-                const SizedBox(width: 6),
-                Text(label,
+      waitDuration: const Duration(milliseconds: 300),
+      child: Container(
+        height: 28,
+        decoration: BoxDecoration(
+          color: esOscuro ? const Color(0xFF181B24) : p.surface2,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: esOscuro ? const Color(0xFF282E40) : p.borderSoft),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          child: InkWell(
+            onTap: habilitado ? onTap : null,
+            borderRadius: BorderRadius.circular(6),
+            hoverColor: p.primary.withValues(alpha: 0.15),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    icono,
+                    size: 13,
+                    color: habilitado
+                        ? (esOscuro ? color : (color == const Color(0xFFF8FAFC) ? p.text : color))
+                        : p.subtle,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    label,
                     style: TextStyle(
-                        fontSize: 12,
-                        color: habilitado ? color : p.subtle,
-                        fontWeight: FontWeight.w500)),
-              ],
+                      fontSize: 11.5,
+                      color: habilitado
+                          ? (esOscuro
+                              ? (color == p.text ? const Color(0xFFF8FAFC) : color)
+                              : (color == const Color(0xFFF8FAFC) ? p.text : color))
+                          : p.subtle,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -2524,47 +2695,118 @@ class _CodeViewState extends State<CodeView> {
     );
   }
 
-  // ──────────── Panel inferior con tabs ────────────
+  // ──────────── Panel inferior con tabs (Estilo VS Code) ────────────
 
   Widget _panelInferior(AppPalette p) {
-    // El alto lo gobierna el caller (SizedBox de altura `_altoPanelInferior`).
-    // No usamos `maxHeight` aquí para no chocar con el sizing del padre.
+    final esOscuro = p.codeBg.computeLuminance() < 0.5;
     return Container(
       decoration: BoxDecoration(
-        color: p.surface,
+        color: esOscuro ? const Color(0xFF0F1117) : p.surface,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Tabs estilo VS Code
+          // Cabecera compacta 32px
           Container(
-            height: 34,
+            height: 32,
             decoration: BoxDecoration(
-              color: p.surface,
-              border: Border(bottom: BorderSide(color: p.borderSoft)),
+              color: esOscuro ? const Color(0xFF0B0D13) : p.surface2,
+              border: Border(bottom: BorderSide(color: esOscuro ? const Color(0xFF1C202C) : p.borderSoft)),
             ),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-              children: [
-                _tabPanel(p, PanelInferior.terminal, 'TERMINAL', Icons.terminal_rounded),
-                _tabPanel(p, PanelInferior.output, 'SALIDA', Icons.output_rounded),
-                _tabPanel(p, PanelInferior.problemas, 'PROBLEMAS',
-                    Icons.warning_amber_rounded,
-                    contador: _problemas.length),
-                _tabPanel(p, PanelInferior.ia, 'Asistente IA',
-                    Icons.smart_toy_outlined),
-                const SizedBox(width: 8),
-                if (_output != null && _panelActivo == PanelInferior.output)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: BadgeResultado(resultado: _output!),
+                children: [
+                  _tabPanel(p, PanelInferior.terminal, 'TERMINAL', Icons.terminal_rounded),
+                  _tabPanel(p, PanelInferior.output, 'SALIDA', Icons.output_rounded),
+                  _tabPanel(p, PanelInferior.problemas, 'PROBLEMAS', Icons.warning_amber_rounded, contador: _problemas.length),
+                  _tabPanel(p, PanelInferior.ia, 'Asistente IA', Icons.auto_awesome_rounded),
+                  const SizedBox(width: 16),
+                // Indicador de Sandbox
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: esOscuro ? const Color(0xFF161922) : p.surface3,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: esOscuro ? const Color(0xFF282E40) : p.borderSoft),
                   ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('🐍', style: TextStyle(fontSize: 10)),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Python 3.14 - Sandbox',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: esOscuro ? const Color(0xFF94A3B8) : p.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                // Botón limpiar
+                Tooltip(
+                  message: 'Limpiar salida',
+                  child: InkWell(
+                    onTap: () => setState(() => _output = null),
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.all(5),
+                      child: Icon(Icons.delete_outline_rounded, size: 14, color: esOscuro ? const Color(0xFF94A3B8) : p.muted),
+                    ),
+                  ),
+                ),
+                // Maximizar / Restaurar
+                Tooltip(
+                  message: _panelInferiorMaximizado ? 'Restaurar panel' : 'Maximizar panel',
+                  child: InkWell(
+                    onTap: () {
+                      setState(() {
+                        if (_panelInferiorMaximizado) {
+                          _altoPanelInferior = _altoPanelInferiorPrevio;
+                          _panelInferiorMaximizado = false;
+                        } else {
+                          _altoPanelInferiorPrevio = _altoPanelInferior;
+                          _altoPanelInferior = 460;
+                          _panelInferiorMaximizado = true;
+                        }
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.all(5),
+                      child: Icon(
+                        _panelInferiorMaximizado ? Icons.close_fullscreen_rounded : Icons.open_in_full_rounded,
+                        size: 13,
+                        color: esOscuro ? const Color(0xFF94A3B8) : p.muted,
+                      ),
+                    ),
+                  ),
+                ),
+                // Ocultar / Minimizar
+                Tooltip(
+                  message: 'Cerrar panel inferior',
+                  child: InkWell(
+                    onTap: () {
+                      setState(() {
+                        _altoPanelInferior = _minAltoPanelInferior;
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.all(5),
+                      child: Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: esOscuro ? const Color(0xFF94A3B8) : p.muted),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
               ],
-              ),
             ),
           ),
-          Divider(height: 1, color: p.borderSoft),
+        ),
           Expanded(child: _contenidoPanelInferior(p)),
         ],
       ),
@@ -2574,11 +2816,17 @@ class _CodeViewState extends State<CodeView> {
   Widget _tabPanel(AppPalette p, PanelInferior tab, String label, IconData icono,
       {int contador = 0}) {
     final activa = _panelActivo == tab;
+    final esOscuro = p.codeBg.computeLuminance() < 0.5;
     return InkWell(
       onTap: () => setState(() => _panelActivo = tab),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        alignment: Alignment.center,
         decoration: BoxDecoration(
+          color: activa
+              ? (esOscuro ? const Color(0x1F6366F1) : p.primary.withValues(alpha: 0.12))
+              : Colors.transparent,
           border: activa
               ? Border(bottom: BorderSide(color: p.primary, width: 2))
               : null,
@@ -2586,27 +2834,33 @@ class _CodeViewState extends State<CodeView> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icono, size: 12, color: activa ? p.text : p.subtle),
+            Icon(icono, size: 12, color: activa ? p.primary : (esOscuro ? const Color(0xFF64748B) : p.subtle)),
             const SizedBox(width: 5),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 11,
-                    letterSpacing: 0.5,
-                    color: activa ? p.text : p.muted,
-                    fontWeight: activa ? FontWeight.w700 : FontWeight.w500)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                letterSpacing: 0.5,
+                color: activa ? (esOscuro ? const Color(0xFFF8FAFC) : p.text) : (esOscuro ? const Color(0xFF94A3B8) : p.muted),
+                fontWeight: activa ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
             if (contador > 0) ...[
               const SizedBox(width: 5),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 0),
                 decoration: BoxDecoration(
-                  color: AppColors.danger,
+                  color: const Color(0xFFEF4444),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text('$contador',
-                    style: const TextStyle(
-                        fontSize: 9.5,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700)),
+                child: Text(
+                  '$contador',
+                  style: const TextStyle(
+                    fontSize: 9.5,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
             ],
           ],
@@ -2714,8 +2968,8 @@ class _CodeViewState extends State<CodeView> {
                           visualDensity: VisualDensity.compact,
                         ),
                         icon: const Icon(Icons.terminal_rounded, size: 14),
-                        label: const Text('Ir a TERMINAL', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                        onPressed: () => setState(() => _panelActivo = PanelInferior.terminal),
+                        label: const Text('Ejecutar en TERMINAL', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        onPressed: () => _ejecutarEnTerminalInteractiva(),
                       ),
                     ],
                   ),
@@ -2780,6 +3034,7 @@ class _CodeViewState extends State<CodeView> {
             separatorBuilder: (_, __) => Divider(height: 1, color: p.borderSoft),
             itemBuilder: (context, idx) {
               final prob = _problemas[idx];
+              final esEof = prob.contains('EOFError') || prob.contains('input');
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(
@@ -2799,9 +3054,38 @@ class _CodeViewState extends State<CodeView> {
                       ),
                     ),
                     const SizedBox(width: 8),
+                    if (esEof) ...[
+                      InkWell(
+                        onTap: () => _ejecutarEnTerminalInteractiva(),
+                        borderRadius: BorderRadius.circular(5),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.info.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(5),
+                            border: Border.all(color: AppColors.info.withValues(alpha: 0.3)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.terminal_rounded, size: 11, color: AppColors.info),
+                              SizedBox(width: 4),
+                              Text(
+                                'Terminal interactiva',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.info,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
                     InkWell(
                       onTap: () {
-                        final esEof = prob.contains('EOFError') || prob.contains('input');
                         final instruccion = esEof
                             ? 'Corrige el error en el archivo actual: ocurrió un EOFError porque input() no tiene terminal interactiva. Reemplaza los input() por variables directas con valores numéricos de ejemplo para que el programa se ejecute directamente con éxito sin pedir entrada por consola. Devuelve el código completo actualizado.'
                             : 'Corrige este error en el archivo actual y explica brevemente el cambio. Devuelve el código completo funcional:\n`$prob`';
@@ -2868,72 +3152,91 @@ class _CodeViewState extends State<CodeView> {
     }
   }
 
-  Widget _panelIaLateralWidget(AppPalette p) {
+  Widget _cajonDerechoUnificado(AppPalette p) {
     final t = _tabActiva;
     final settings = context.watch<SettingsProvider>();
+    final esOscuro = p.codeBg.computeLuminance() < 0.5;
     return Container(
-      color: p.surface,
+      color: esOscuro ? const Color(0xFF0F1117) : p.surface,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Header del Panel Lateral
+          // Header del Cajón Unificado con pestañas [✨ Asistente IA | 📁 Archivos]
           Container(
-            height: 38,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            height: 36,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
-              color: p.surface2.withValues(alpha: 0.4),
-              border: Border(bottom: BorderSide(color: p.borderSoft)),
+              color: esOscuro ? const Color(0xFF0B0D13) : p.surface2,
+              border: Border(bottom: BorderSide(color: esOscuro ? const Color(0xFF1C202C) : p.borderSoft)),
             ),
-            child: Row(
-              children: [
-                Icon(Icons.auto_awesome_rounded, size: 14, color: p.primary),
-                const SizedBox(width: 7),
-                Expanded(
-                  child: Text(
-                    'Asistente IA', maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: p.text,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: settings.esBloqueadoPostTest
-                        ? AppColors.danger.withValues(alpha: 0.15)
-                        : p.surface3,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    settings.esBloqueadoPostTest
-                        ? '🔒 Post-Test'
-                        : (settings.esSinAcompanamiento ? 'Directo' : 'Acompañamiento'),
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      color: settings.esBloqueadoPostTest ? AppColors.danger : p.subtle,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                if (_iaHistorial.isNotEmpty)
-                  _miniIcon(p, Icons.delete_sweep_outlined, 'Limpiar historial de chat', () {
-                    setState(() {
-                      _iaHistorial.clear();
-                      _iaConversacionId = null;
-                      _iaCambioPendiente = false;
-                    });
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _tabItemCajon(p, ModoPanelDerecho.ia, '✨ Asistente IA'),
+                  const SizedBox(width: 4),
+                  _tabItemCajon(p, ModoPanelDerecho.archivos, '📁 Archivos'),
+                  const SizedBox(width: 8),
+                  if (_modoPanelDerecho == ModoPanelDerecho.ia && _iaHistorial.isNotEmpty)
+                    _miniIcon(p, Icons.delete_sweep_outlined, 'Limpiar historial de chat', () {
+                      setState(() {
+                        _iaHistorial.clear();
+                        _iaConversacionId = null;
+                        _iaCambioPendiente = false;
+                      });
+                    }),
+                  _miniIcon(p, Icons.close_rounded, 'Ocultar panel derecho', () {
+                    setState(() => _panelIaLateral = false);
                   }),
-                const SizedBox(width: 2),
-                _miniIcon(p, Icons.close_rounded, 'Ocultar panel', () {
-                  setState(() => _panelIaLateral = false);
-                }),
-              ],
+                ],
+              ),
             ),
           ),
+          Expanded(
+            child: _modoPanelDerecho == ModoPanelDerecho.ia
+                ? _cuerpoAsistenteIa(p, t, settings)
+                : _seccionExplorador(p),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tabItemCajon(AppPalette p, ModoPanelDerecho modo, String label) {
+    final activo = _modoPanelDerecho == modo;
+    final esOscuro = p.codeBg.computeLuminance() < 0.5;
+    return InkWell(
+      onTap: () => setState(() => _modoPanelDerecho = modo),
+      borderRadius: BorderRadius.circular(5),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: activo
+              ? (esOscuro ? const Color(0x1F6366F1) : p.primary.withValues(alpha: 0.12))
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(5),
+          border: activo
+              ? Border.all(color: esOscuro ? const Color(0x556366F1) : p.primary.withValues(alpha: 0.35))
+              : null,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: activo ? FontWeight.w600 : FontWeight.w400,
+            color: activo
+                ? (esOscuro ? const Color(0xFFF8FAFC) : p.primary)
+                : (esOscuro ? const Color(0xFF94A3B8) : p.muted),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _cuerpoAsistenteIa(AppPalette p, TabArchivo? t, SettingsProvider settings) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
           // Sub-header de contexto de archivo
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -3135,8 +3438,7 @@ class _CodeViewState extends State<CodeView> {
             ),
           ],
         ],
-      ),
-    );
+      );
   }
 
   Widget _emptyStateIaLateral(AppPalette p, TabArchivo? t) {
@@ -3506,13 +3808,32 @@ class _CodeViewState extends State<CodeView> {
 
   String _construirOutput(ResultadoEjecucion o) {
     final partes = <String>[];
-    if (o.stdout.isNotEmpty) partes.add(o.stdout);
-    if (o.stderr.isNotEmpty) {
-      partes.add(o.stdout.isNotEmpty
-          ? '\n--- stderr ---\n' + o.stderr
-          : o.stderr);
+    final ahora = DateTime.now();
+    final hora = ahora.hour.toString().padLeft(2, '0');
+    final min = ahora.minute.toString().padLeft(2, '0');
+    final seg = ahora.second.toString().padLeft(2, '0');
+    final ts = '[$hora:$min:$seg]';
+
+    if (o.stdout.isNotEmpty) {
+      final lineas = o.stdout.split('\n');
+      for (final l in lineas) {
+        if (l.isNotEmpty) {
+          partes.add('$ts INFO: $l\n');
+        }
+      }
     }
-    if (partes.isEmpty) partes.add('(sin salida)');
+    if (o.ok && o.stderr.isEmpty) {
+      partes.add('$ts SUCCESS: Ejecución completada exitosamente (código 0)\n');
+    }
+    if (o.stderr.isNotEmpty) {
+      final lineasErr = o.stderr.split('\n');
+      for (final l in lineasErr) {
+        if (l.isNotEmpty) {
+          partes.add('$ts ERROR: $l\n');
+        }
+      }
+    }
+    if (partes.isEmpty) partes.add('$ts INFO: (sin salida)\n');
     return partes.join('');
   }
 

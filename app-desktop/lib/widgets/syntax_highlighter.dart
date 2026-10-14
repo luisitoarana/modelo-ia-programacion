@@ -70,12 +70,26 @@ class _Colores {
 }
 
 _Colores _coloresPara(AppPalette p) {
+  final esOscuro = p.codeBg.computeLuminance() < 0.5;
+  if (!esOscuro) {
+    return _Colores(
+      keyword: p.primary,
+      string: const Color(0xFF15803D),
+      comment: p.subtle,
+      number: const Color(0xFF0284C7),
+      builtin: const Color(0xFF7C3AED),
+      def: const Color(0xFF6D28D9),
+      decorator: const Color(0xFFC2410C),
+      punctuation: p.codeText.withValues(alpha: 0.85),
+      base: p.codeText,
+    );
+  }
   return _Colores(
-    keyword: p.primary, // terracota
-    string: const Color(0xFF98C379), // verde suave
-    comment: p.subtle, // gris
-    number: const Color(0xFF7DAEF0), // azul suave
-    builtin: const Color(0xFFE5C07B), // amarillo dorado
+    keyword: p.primary,
+    string: const Color(0xFF98C379),
+    comment: p.subtle,
+    number: const Color(0xFF7DAEF0),
+    builtin: const Color(0xFFE5C07B),
     def: const Color(0xFFE5C07B),
     decorator: const Color(0xFFE89E5C),
     punctuation: p.codeText.withValues(alpha: 0.7),

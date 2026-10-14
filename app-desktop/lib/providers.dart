@@ -38,10 +38,19 @@ class SettingsProvider extends ChangeNotifier {
 
   String _nivelModulo = 'principiante';
   String? _usuarioActivoId;
+  String? _carpetaProyecto;
   String get nivelModulo => _nivelModulo;
+  String? get carpetaProyecto => _carpetaProyecto;
   bool get esModuloPrincipiante => _nivelModulo == 'principiante';
   bool get esModuloIntermedio => _nivelModulo == 'intermedio';
   bool get esModuloAvanzado => _nivelModulo == 'avanzado';
+
+  void setCarpetaProyecto(String? ruta) {
+    if (_carpetaProyecto != ruta) {
+      _carpetaProyecto = ruta;
+      notifyListeners();
+    }
+  }
 
   static const _kIdiomaKey = 'explicador.idioma';
   static const _kApiUrlKey = 'explicador.api_url';
@@ -171,7 +180,7 @@ class SettingsProvider extends ChangeNotifier {
 /// Estado del tema (claro/oscuro/sistema) + paleta de colores, persistidos.
 class ThemeProvider extends ChangeNotifier {
   ThemeMode _mode = ThemeMode.dark;
-  String _paletaId = 'terracota';
+  String _paletaId = 'obsidiana';
 
   ThemeMode get mode => _mode;
   String get paletaId => _paletaId;
@@ -187,7 +196,11 @@ class ThemeProvider extends ChangeNotifier {
       'dark' => ThemeMode.dark,
       _ => ThemeMode.system,
     };
-    _paletaId = prefs.getString(_kPaletaKey) ?? 'terracota';
+    final savedPaleta = prefs.getString(_kPaletaKey);
+    // Si era terracota de la versión anterior o vacío, migrar a obsidiana
+    _paletaId = (savedPaleta == null || savedPaleta == 'terracota')
+        ? 'obsidiana'
+        : savedPaleta;
     notifyListeners();
   }
 

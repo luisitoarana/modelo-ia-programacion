@@ -173,6 +173,12 @@ class TerminalViewState extends State<TerminalView> {
     });
   }
 
+  /// Ejecuta un comando en la terminal interactiva (útil desde el editor de código).
+  Future<void> ejecutarComando(String comando) async {
+    _ctrl.text = comando;
+    await _ejecutar();
+  }
+
   @override
   void dispose() {
     _ctrl.dispose();

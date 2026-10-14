@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,16 +7,17 @@ import '../models.dart';
 import '../providers.dart';
 import '../screens/home_screen.dart';
 import '../screens/settings_screen.dart';
+import '../services/dialogos_nativos.dart';
 import '../services/i18n.dart';
 import '../theme.dart';
+import 'brand_logo.dart';
+import 'code/divisores.dart';
 import 'confirm_dialog.dart';
-import 'empty_state.dart';
 import 'pulse_dot.dart';
 import 'skeleton.dart';
-import 'brand_logo.dart';
 
 /// Panel lateral de navegación (Sidebar):
-///  - Colapsable (mini-rail de 64px o panel completo de 280px).
+///  - Colapsable (mini-rail de 48px o panel completo redimensionable).
 ///  - Botón "Nuevo chat" prominente.
 ///  - Búsqueda integrada para filtrar conversaciones.
 ///  - Agrupación automática de conversaciones por fecha
@@ -41,6 +44,7 @@ class Sidebar extends StatefulWidget {
 class _SidebarState extends State<Sidebar> {
   final _searchCtrl = TextEditingController();
   String _query = '';
+  double _anchoProyectos = 240.0;
 
   @override
   void dispose() {
@@ -50,279 +54,612 @@ class _SidebarState extends State<Sidebar> {
 
   @override
   Widget build(BuildContext context) {
-    final p = AppPalette.of(context);
     final chat = context.watch<ChatProvider>();
-    final auth = context.watch<AuthProvider>();
     final colapsado = widget.colapsado;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOut,
-      width: colapsado ? 64 : 280,
-      decoration: BoxDecoration(
-        color: p.surface,
-        border: Border(right: BorderSide(color: p.borderSoft)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _Header(colapsado: colapsado, onToggle: widget.onToggleColapsado),
-          const SizedBox(height: 4),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── 1. Activity Rail Izquierdo (48px fijo) ──
+        _ActivityRail(
+          vista: widget.vista,
+          onCambiarVista: widget.onCambiarVista,
+          colapsado: colapsado,
+          onToggleColapsado: widget.onToggleColapsado,
+        ),
 
-          // Botón principal "Nuevo chat" (terracota).
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: colapsado ? 8 : 12),
-            child: _NuevoChatButton(
-              colapsado: colapsado,
-              onTap: () {
-                chat.nueva();
-                widget.onCambiarVista(VistaPrincipal.chat);
-              },
-            ),
+        // ── 2. Panel de Proyectos y Chats (redimensionable con DivisorVertical) ──
+        _ProyectosPanel(
+          ancho: _anchoProyectos,
+          colapsado: colapsado,
+          onToggleColapsado: widget.onToggleColapsado,
+          onNuevoChat: () {
+            chat.nueva();
+            widget.onCambiarVista(VistaPrincipal.chat);
+          },
+          searchCtrl: _searchCtrl,
+          query: _query,
+          onQueryChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
+          onAbrirProyecto: () => widget.onCambiarVista(VistaPrincipal.code),
+          recientesWidget: _Recientes(
+            conversaciones: chat.conversacionesOrdenadas,
+            activaId: chat.activaId,
+            colapsado: false,
+            query: _query,
+            cargando: chat.cargandoConversaciones &&
+                !chat.conversacionesCargadasAlgunaVez,
+            onNuevoChat: () {
+              chat.nueva();
+              widget.onCambiarVista(VistaPrincipal.chat);
+            },
+            onSeleccionar: (id) {
+              chat.seleccionar(id);
+              widget.onCambiarVista(VistaPrincipal.chat);
+            },
+            onEliminar: (id) async {
+              final conv = chat.conversaciones.firstWhere(
+                (c) => c.id == id,
+                orElse: () => ConversacionResumen(
+                  id: id,
+                  titulo: 'Conversación',
+                  fechaActualizacion: '',
+                ),
+              );
+              final confirmado = await mostrarConfirmacion(
+                context,
+                titulo: '¿Eliminar esta conversación?',
+                descripcion:
+                    '"${conv.titulo}" se borrará permanentemente. Esta acción no se puede deshacer.',
+                textoConfirmar: 'Eliminar',
+                textoCancelar: 'Cancelar',
+                tono: ConfirmTono.danger,
+                icono: ConfirmIcono.eliminar,
+              );
+              if (confirmado) chat.eliminar(id);
+            },
           ),
+        ),
 
-          const SizedBox(height: 8),
-
-          // Navegación principal.
-          _NavItem(
-            icon: Icons.chat_bubble_outline,
-            label: 'Chat',
-            colapsado: colapsado,
-            activo: widget.vista == VistaPrincipal.chat,
-            onTap: () => widget.onCambiarVista(VistaPrincipal.chat),
+        // ── Divisor arrastrable (aparece solo si el panel está desplegado) ──
+        if (!colapsado)
+          DivisorVertical(
+            onDrag: (dx) {
+              setState(() {
+                _anchoProyectos = (_anchoProyectos + dx).clamp(180.0, 450.0);
+              });
+            },
           ),
-          _NavItem(
-            icon: Icons.code,
-            label: 'Explicar código',
-            colapsado: colapsado,
-            activo: widget.vista == VistaPrincipal.explicar,
-            onTap: () => widget.onCambiarVista(VistaPrincipal.explicar),
-          ),
-          _NavItem(
-            icon: Icons.edit_note,
-            label: 'Editor de Código',
-            colapsado: colapsado,
-            activo: widget.vista == VistaPrincipal.code,
-            onTap: () => widget.onCambiarVista(VistaPrincipal.code),
-          ),
-          _NavItem(
-            icon: Icons.folder_copy_outlined,
-            label: 'Explorador',
-            colapsado: colapsado,
-            activo: widget.vista == VistaPrincipal.proyecto,
-            onTap: () => widget.onCambiarVista(VistaPrincipal.proyecto),
-          ),
-          _NavItem(
-            icon: Icons.terminal,
-            label: 'Terminal',
-            colapsado: colapsado,
-            activo: widget.vista == VistaPrincipal.terminal,
-            onTap: () => widget.onCambiarVista(VistaPrincipal.terminal),
-          ),
-          if (auth.usuario?.esAdmin == true)
-            _NavItem(
-              icon: Icons.admin_panel_settings_outlined,
-              label: 'Administración',
-              colapsado: colapsado,
-              activo: false,
-              onTap: () => showSettings(context, abrirAdministracion: true),
-            ),
-
-          if (!colapsado) ...[
-            const SizedBox(height: 14),
-            _SearchField(
-              controller: _searchCtrl,
-              onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
-            ),
-            const SizedBox(height: 10),
-          ] else
-            const SizedBox(height: 12),
-
-          // Recientes con agrupación por fecha.
-          Expanded(
-            child: _Recientes(
-              conversaciones: chat.conversacionesOrdenadas,
-              activaId: chat.activaId,
-              colapsado: colapsado,
-              query: _query,
-              // Si NO se cargó nunca y está cargando: skeletons.
-              // Si ya se cargó y no hay conversaciones: empty state.
-              cargando:
-                  chat.cargandoConversaciones &&
-                  !chat.conversacionesCargadasAlgunaVez,
-              onNuevoChat: () {
-                chat.nueva();
-                widget.onCambiarVista(VistaPrincipal.chat);
-              },
-              onSeleccionar: (id) {
-                chat.seleccionar(id);
-                widget.onCambiarVista(VistaPrincipal.chat);
-              },
-              onEliminar: (id) async {
-                final conv = chat.conversaciones.firstWhere(
-                  (c) => c.id == id,
-                  orElse: () => ConversacionResumen(
-                    id: id,
-                    titulo: 'Conversación',
-                    fechaActualizacion: '',
-                  ),
-                );
-                final confirmado = await mostrarConfirmacion(
-                  context,
-                  titulo: '¿Eliminar esta conversación?',
-                  descripcion:
-                      '"${conv.titulo}" se borrará permanentemente. Esta acción no se puede deshacer.',
-                  textoConfirmar: 'Eliminar',
-                  textoCancelar: 'Cancelar',
-                  tono: ConfirmTono.danger,
-                  icono: ConfirmIcono.eliminar,
-                );
-                if (confirmado) chat.eliminar(id);
-              },
-            ),
-          ),
-
-          Divider(height: 1, color: p.borderSoft),
-          _UsuarioFooter(
-            nombre: auth.usuario?.nombre ?? '',
-            rol: auth.usuario?.rol ?? '',
-            colapsado: colapsado,
-          ),
-        ],
-      ),
+      ],
     );
   }
 }
 
-// ─────────────────────────── Header ───────────────────────────
+// ─────────────────────────── Activity Rail (48px) ───────────────────────────
 
-class _Header extends StatelessWidget {
+class _ActivityRail extends StatelessWidget {
+  final VistaPrincipal vista;
+  final ValueChanged<VistaPrincipal> onCambiarVista;
   final bool colapsado;
-  final VoidCallback onToggle;
-  const _Header({required this.colapsado, required this.onToggle});
+  final VoidCallback onToggleColapsado;
+
+  const _ActivityRail({
+    required this.vista,
+    required this.onCambiarVista,
+    required this.colapsado,
+    required this.onToggleColapsado,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final esOscuro = Theme.of(context).brightness == Brightness.dark;
     final p = AppPalette.of(context);
-    if (colapsado) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(0, 14, 0, 8),
-        child: Center(
-          child: Tooltip(
-            message: 'Expandir',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: onToggle,
-              child: Container(
-                height: 32,
-                width: 32,
-                decoration: BoxDecoration(
-                  color: p.primary,
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                alignment: Alignment.center,
-                child: const BrandLogo(size: 18, color: Colors.white),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 14, 8, 8),
-      child: Row(
+    final auth = context.watch<AuthProvider>();
+    final nombre = auth.usuario?.nombre ?? '';
+    final inicial = nombre.isNotEmpty ? nombre[0].toUpperCase() : 'LU';
+
+    return Container(
+      width: 48,
+      decoration: BoxDecoration(
+        color: esOscuro ? const Color(0xFF07080C) : const Color(0xFFEDF2F7),
+        border: Border(right: BorderSide(color: esOscuro ? const Color(0xFF1C202C) : p.borderSoft)),
+      ),
+      child: Column(
         children: [
-          Container(
-            height: 30,
-            width: 30,
-            decoration: BoxDecoration(
-              color: p.primary,
-              borderRadius: BorderRadius.circular(9),
-              boxShadow: p.subtleShadow,
-            ),
-            alignment: Alignment.center,
-            child: const BrandLogo(size: 16, color: Colors.white),
+          const SizedBox(height: 8),
+          _RailIcon(
+            icon: Icons.chat_bubble_outline_rounded,
+            tooltip: 'Chat Asistente (Ctrl+1)',
+            activo: vista == VistaPrincipal.chat,
+            onTap: () => onCambiarVista(VistaPrincipal.chat),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Explicador IA',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 14.5,
-                color: p.text,
-                letterSpacing: -0.1,
-              ),
-            ),
+          _RailIcon(
+            icon: Icons.code_rounded,
+            tooltip: 'Explicar Código (Ctrl+2)',
+            activo: vista == VistaPrincipal.explicar,
+            onTap: () => onCambiarVista(VistaPrincipal.explicar),
           ),
+          _RailIcon(
+            icon: Icons.edit_note_rounded,
+            tooltip: 'Editor de Código (Ctrl+3)',
+            activo: vista == VistaPrincipal.code,
+            onTap: () => onCambiarVista(VistaPrincipal.code),
+          ),
+          _RailIcon(
+            icon: Icons.folder_open_rounded,
+            tooltip: 'Explorador (Ctrl+4)',
+            activo: vista == VistaPrincipal.proyecto,
+            onTap: () => onCambiarVista(VistaPrincipal.proyecto),
+          ),
+          _RailIcon(
+            icon: Icons.terminal_rounded,
+            tooltip: 'Terminal Interactiva (Ctrl+5)',
+            activo: vista == VistaPrincipal.terminal,
+            onTap: () => onCambiarVista(VistaPrincipal.terminal),
+          ),
+          if (auth.usuario?.esAdmin == true)
+            _RailIcon(
+              icon: Icons.admin_panel_settings_outlined,
+              tooltip: 'Administración',
+              activo: false,
+              onTap: () => showSettings(context, abrirAdministracion: true),
+            ),
+          const Spacer(),
+          _RailIcon(
+            icon: colapsado ? Icons.view_sidebar_outlined : Icons.menu_open_rounded,
+            tooltip: colapsado ? 'Abrir barra lateral (Ctrl+B)' : 'Ocultar barra lateral (Ctrl+B)',
+            activo: !colapsado,
+            onTap: onToggleColapsado,
+          ),
+          _RailIcon(
+            icon: Icons.settings_outlined,
+            tooltip: 'Configuración (Ctrl+,)',
+            activo: false,
+            onTap: () => showSettings(context),
+          ),
+          const SizedBox(height: 6),
           Tooltip(
-            message: 'Colapsar sidebar',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: onToggle,
-              child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: Icon(Icons.menu_open, size: 18, color: p.muted),
-              ),
+            message: nombre.isNotEmpty ? '$nombre (Estudiante)' : 'Usuario (LU)',
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: p.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Text(
+                      inicial,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+                const Positioned(
+                  right: -2,
+                  bottom: -2,
+                  child: PulseDot(size: 6.5, tooltip: 'Conectado'),
+                ),
+              ],
             ),
           ),
+          const SizedBox(height: 10),
         ],
       ),
     );
   }
 }
 
-// ─────────────────────────── Botón nuevo chat ───────────────────────────
-
-class _NuevoChatButton extends StatefulWidget {
-  final bool colapsado;
+class _RailIcon extends StatefulWidget {
+  final IconData icon;
+  final String tooltip;
+  final bool activo;
   final VoidCallback onTap;
-  const _NuevoChatButton({required this.colapsado, required this.onTap});
+  const _RailIcon({
+    required this.icon,
+    required this.tooltip,
+    this.activo = false,
+    required this.onTap,
+  });
 
   @override
-  State<_NuevoChatButton> createState() => _NuevoChatButtonState();
+  State<_RailIcon> createState() => _RailIconState();
 }
 
-class _NuevoChatButtonState extends State<_NuevoChatButton> {
+class _RailIconState extends State<_RailIcon> {
   bool _hover = false;
 
   @override
   Widget build(BuildContext context) {
+    final esOscuro = Theme.of(context).brightness == Brightness.dark;
     final p = AppPalette.of(context);
-    final bg = _hover ? p.primaryHover : p.primary;
+    final activo = widget.activo;
+    final color = activo
+        ? p.primary
+        : (_hover ? p.text : (esOscuro ? const Color(0xFF94A3B8) : p.muted));
+    final bg = activo
+        ? p.primary.withValues(alpha: 0.16)
+        : (_hover ? (esOscuro ? const Color(0xFF161922) : p.surface3) : Colors.transparent);
+
+    return Tooltip(
+      message: widget.tooltip,
+      preferBelow: false,
+      waitDuration: const Duration(milliseconds: 300),
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: widget.onTap,
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            width: 36,
+            height: 36,
+            margin: const EdgeInsets.symmetric(vertical: 3),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(8),
+              border: activo ? Border.all(color: p.primary.withValues(alpha: 0.4)) : null,
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Icon(widget.icon, size: 19, color: color),
+                Positioned.fill(
+                  child: Opacity(
+                    opacity: 0.0,
+                    child: Center(
+                      child: Text(
+                        widget.tooltip,
+                        style: const TextStyle(fontSize: 1),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────── Panel Proyectos / Recientes Codex (240px) ───────────────────────────
+
+class _ProyectosPanel extends StatelessWidget {
+  final double ancho;
+  final bool colapsado;
+  final VoidCallback onToggleColapsado;
+  final VoidCallback onNuevoChat;
+  final TextEditingController searchCtrl;
+  final String query;
+  final ValueChanged<String> onQueryChanged;
+  final VoidCallback onAbrirProyecto;
+  final Widget recientesWidget;
+
+  const _ProyectosPanel({
+    this.ancho = 240,
+    required this.colapsado,
+    required this.onToggleColapsado,
+    required this.onNuevoChat,
+    required this.searchCtrl,
+    required this.query,
+    required this.onQueryChanged,
+    required this.onAbrirProyecto,
+    required this.recientesWidget,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final esOscuro = Theme.of(context).brightness == Brightness.dark;
+    final p = AppPalette.of(context);
+    final settings = context.watch<SettingsProvider>();
+    final carpetaActiva = settings.carpetaProyecto;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+      width: colapsado ? 0 : ancho,
+      child: ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.topLeft,
+          minWidth: ancho,
+          maxWidth: ancho,
+          child: Container(
+            width: ancho,
+            decoration: BoxDecoration(
+              color: esOscuro ? const Color(0xFF0A0C10) : p.surface,
+              border: Border(right: BorderSide(color: esOscuro ? const Color(0xFF1C202C) : p.borderSoft)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header estilo Codex (hacer clic en Explicador IA colapsa/expande el panel)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 10, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Tooltip(
+                          message: 'Ocultar panel (Ctrl+B)',
+                          child: InkWell(
+                            onTap: onToggleColapsado,
+                            borderRadius: BorderRadius.circular(6),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2),
+                              child: Text(
+                                'Explicador IA',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: p.text,
+                                  letterSpacing: -0.2,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Botón minimalista Nuevo Chat
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  child: _BotonNuevoChatCodex(onTap: onNuevoChat),
+                ),
+                const SizedBox(height: 10),
+                // Sección PROYECTOS
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                  child: Text(
+                    'PROYECTOS',
+                    style: TextStyle(
+                      fontSize: 10,
+                      letterSpacing: 0.8,
+                      fontWeight: FontWeight.w700,
+                      color: p.subtle,
+                    ),
+                  ),
+                ),
+                // Tarjeta de proyecto real o botón para abrir proyecto
+                if (carpetaActiva != null && carpetaActiva.isNotEmpty)
+                  _ProyectoItemCodex(
+                    carpeta: carpetaActiva,
+                    onTap: onAbrirProyecto,
+                    onCerrar: () => settings.setCarpetaProyecto(null),
+                    onCambiar: () async {
+                      final nueva = await DialogosNativos.seleccionarCarpeta(
+                        titulo: 'Seleccionar carpeta de proyecto',
+                      );
+                      if (nueva != null) {
+                        settings.setCarpetaProyecto(nueva);
+                        onAbrirProyecto();
+                      }
+                    },
+                  )
+                else
+                  _BotonAbrirProyectoCodex(
+                    onTap: () async {
+                      final ruta = await DialogosNativos.seleccionarCarpeta(
+                        titulo: 'Abrir carpeta como proyecto',
+                      );
+                      if (ruta != null) {
+                        settings.setCarpetaProyecto(ruta);
+                        onAbrirProyecto();
+                      }
+                    },
+                  ),
+                const SizedBox(height: 10),
+                // Sección RECIENTES
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                  child: Text(
+                    'RECIENTES',
+                    style: TextStyle(
+                      fontSize: 10,
+                      letterSpacing: 0.8,
+                      fontWeight: FontWeight.w700,
+                      color: p.subtle,
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  child: _SearchFieldCodex(
+                    controller: searchCtrl,
+                    onChanged: onQueryChanged,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Expanded(child: recientesWidget),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BotonAbrirProyectoCodex extends StatefulWidget {
+  final VoidCallback onTap;
+  const _BotonAbrirProyectoCodex({required this.onTap});
+
+  @override
+  State<_BotonAbrirProyectoCodex> createState() => _BotonAbrirProyectoCodexState();
+}
+
+class _BotonAbrirProyectoCodexState extends State<_BotonAbrirProyectoCodex> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final esOscuro = Theme.of(context).brightness == Brightness.dark;
+    final p = AppPalette.of(context);
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: Tooltip(
-        message: widget.colapsado ? I18n.t('sidebar.nuevo_chat') : '',
+      child: InkWell(
+        onTap: widget.onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: _hover
+                ? (esOscuro ? const Color(0xFF1E2230) : p.surface2)
+                : (esOscuro ? const Color(0xFF161922) : p.surface2.withValues(alpha: 0.5)),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: _hover ? p.primary : (esOscuro ? const Color(0xFF282E40) : p.border),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.create_new_folder_outlined, size: 16, color: p.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Abrir carpeta...',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: p.text,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      'Ningún proyecto abierto',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        color: p.muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProyectoItemCodex extends StatefulWidget {
+  final String carpeta;
+  final VoidCallback onTap;
+  final VoidCallback onCambiar;
+  final VoidCallback onCerrar;
+
+  const _ProyectoItemCodex({
+    required this.carpeta,
+    required this.onTap,
+    required this.onCambiar,
+    required this.onCerrar,
+  });
+
+  @override
+  State<_ProyectoItemCodex> createState() => _ProyectoItemCodexState();
+}
+
+class _ProyectoItemCodexState extends State<_ProyectoItemCodex> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final esOscuro = Theme.of(context).brightness == Brightness.dark;
+    final p = AppPalette.of(context);
+    final nombreCarpeta = widget.carpeta.split(RegExp(r'[/\\]')).last;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+        decoration: BoxDecoration(
+          color: _hover
+              ? (esOscuro ? const Color(0xFF1E2230) : p.surface2)
+              : (esOscuro ? const Color(0xFF161922) : p.surface2.withValues(alpha: 0.6)),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: _hover ? p.primary.withValues(alpha: 0.6) : (esOscuro ? const Color(0xFF282E40) : p.border),
+          ),
+        ),
         child: InkWell(
-          borderRadius: BorderRadius.circular(10),
           onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            height: 38,
-            padding: EdgeInsets.symmetric(
-              horizontal: widget.colapsado ? 0 : 12,
-            ),
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.circular(10),
-              boxShadow: p.subtleShadow,
-            ),
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
             child: Row(
-              mainAxisAlignment: widget.colapsado
-                  ? MainAxisAlignment.center
-                  : MainAxisAlignment.start,
               children: [
-                const Icon(Icons.add, color: Colors.white, size: 17),
-                if (!widget.colapsado) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    I18n.t('sidebar.nuevo_chat'),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w600,
+                Icon(Icons.folder_rounded, size: 16, color: p.info),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        nombreCarpeta.isEmpty ? widget.carpeta : nombreCarpeta,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: p.text,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        widget.carpeta,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: p.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_hover) ...[
+                  Tooltip(
+                    message: 'Cambiar carpeta',
+                    child: InkWell(
+                      onTap: widget.onCambiar,
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: const EdgeInsets.all(2),
+                        child: Icon(Icons.drive_file_move_outlined, size: 14, color: p.subtle),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Tooltip(
+                    message: 'Cerrar proyecto',
+                    child: InkWell(
+                      onTap: widget.onCerrar,
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: const EdgeInsets.all(2),
+                        child: Icon(Icons.close_rounded, size: 14, color: p.subtle),
+                      ),
                     ),
                   ),
                 ],
@@ -335,54 +672,115 @@ class _NuevoChatButtonState extends State<_NuevoChatButton> {
   }
 }
 
-// ─────────────────────────── Search ───────────────────────────
+class _BotonNuevoChatCodex extends StatefulWidget {
+  final VoidCallback onTap;
+  const _BotonNuevoChatCodex({required this.onTap});
 
-class _SearchField extends StatelessWidget {
-  final TextEditingController controller;
-  final ValueChanged<String> onChanged;
-  const _SearchField({required this.controller, required this.onChanged});
+  @override
+  State<_BotonNuevoChatCodex> createState() => _BotonNuevoChatCodexState();
+}
+
+class _BotonNuevoChatCodexState extends State<_BotonNuevoChatCodex> {
+  bool _hover = false;
 
   @override
   Widget build(BuildContext context) {
+    final esOscuro = Theme.of(context).brightness == Brightness.dark;
     final p = AppPalette.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Container(
-        height: 34,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: p.surface2,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: p.borderSoft),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.search, size: 15, color: p.subtle),
-            const SizedBox(width: 6),
-            Expanded(
-              child: TextField(
-                controller: controller,
-                onChanged: onChanged,
-                style: TextStyle(fontSize: 13, color: p.text),
-                decoration: InputDecoration(
-                  isDense: true,
-                  hintText: 'Buscar chats…',
-                  hintStyle: TextStyle(color: p.subtle, fontSize: 13),
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.zero,
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: InkWell(
+        onTap: widget.onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: _hover
+                ? (esOscuro ? const Color(0xFF1E2230) : p.surface2)
+                : (esOscuro ? const Color(0xFF161922) : p.surface3.withValues(alpha: 0.5)),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: _hover ? p.primary : (esOscuro ? const Color(0xFF282E40) : p.border),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.edit_note_rounded, size: 16, color: p.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Nuevo chat',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: p.text,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ),
-            if (controller.text.isNotEmpty)
-              InkWell(
-                onTap: () {
-                  controller.clear();
-                  onChanged('');
-                },
-                child: Icon(Icons.close, size: 14, color: p.subtle),
+              const SizedBox(width: 4),
+              Text(
+                'Ctrl+N',
+                style: TextStyle(fontSize: 10.5, color: p.subtle),
               ),
-          ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+class _SearchFieldCodex extends StatelessWidget {
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  const _SearchFieldCodex({required this.controller, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final esOscuro = Theme.of(context).brightness == Brightness.dark;
+    final p = AppPalette.of(context);
+
+    return Container(
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: esOscuro ? const Color(0xFF161922) : p.surface2,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: esOscuro ? const Color(0xFF282E40) : p.border),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.search, size: 14, color: p.subtle),
+          const SizedBox(width: 6),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              onChanged: onChanged,
+              style: TextStyle(fontSize: 12, color: p.text),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Buscar chats…',
+                hintStyle: TextStyle(color: p.subtle, fontSize: 12),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          ),
+          if (controller.text.isNotEmpty)
+            InkWell(
+              onTap: () {
+                controller.clear();
+                onChanged('');
+              },
+              child: Icon(Icons.close, size: 13, color: p.subtle),
+            ),
+        ],
       ),
     );
   }
@@ -474,15 +872,32 @@ class _Recientes extends StatelessWidget {
         );
       }
       return SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: EmptyState(
-          icono: Icons.forum_outlined,
-          titulo: 'Tu primer chat',
-          mensaje: 'Empieza preguntando lo que quieras a tu asistente.',
-          accion: EmptyStateAction(
-            label: 'Crear chat',
-            icono: Icons.add,
-            onTap: onNuevoChat,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.forum_outlined, size: 24, color: p.subtle),
+              const SizedBox(height: 10),
+              Text(
+                'Sin chats recientes',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: p.text,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Inicia una conversación con el botón superior.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: p.muted,
+                  height: 1.4,
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -596,13 +1011,14 @@ class _ConversacionTileState extends State<_ConversacionTile> {
 
   @override
   Widget build(BuildContext context) {
+    final esOscuro = Theme.of(context).brightness == Brightness.dark;
     final p = AppPalette.of(context);
     final bg = widget.activa
-        ? p.surface2
+        ? (esOscuro ? const Color(0xFF1E2230) : p.surface2)
         : (_dragOver
-              ? p.primary.withValues(alpha: 0.08)
+              ? p.primary.withValues(alpha: 0.12)
               : (_hover
-                    ? p.surface2.withValues(alpha: 0.55)
+                    ? (esOscuro ? const Color(0xFF161922) : p.surface3.withValues(alpha: 0.6))
                     : Colors.transparent));
 
     final contenido = MouseRegion(
@@ -633,9 +1049,9 @@ class _ConversacionTileState extends State<_ConversacionTile> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 13,
-                    color: widget.activa ? p.text : p.muted,
+                    color: widget.activa ? p.text : (esOscuro ? const Color(0xFFCBD5E1) : p.text.withValues(alpha: 0.85)),
                     fontWeight: widget.activa
-                        ? FontWeight.w500
+                        ? FontWeight.w600
                         : FontWeight.w400,
                   ),
                 ),
@@ -718,311 +1134,3 @@ class _ConversacionTileState extends State<_ConversacionTile> {
   }
 }
 
-// ─────────────────────────── Nav item ───────────────────────────
-
-class _NavItem extends StatefulWidget {
-  final IconData icon;
-  final String label;
-  final bool activo;
-  final bool colapsado;
-  final VoidCallback onTap;
-
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.activo = false,
-    this.colapsado = false,
-  });
-
-  @override
-  State<_NavItem> createState() => _NavItemState();
-}
-
-class _NavItemState extends State<_NavItem> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = AppPalette.of(context);
-    final color = widget.activo ? p.text : p.muted;
-    final bg = widget.activo
-        ? p.surface2
-        : (_hover ? p.surface2.withValues(alpha: 0.55) : Colors.transparent);
-
-    // Indicador lateral terracota — solo si activo y no colapsado.
-    final indicador = AnimatedContainer(
-      duration: AppMotion.medium,
-      curve: AppMotion.standard,
-      width: widget.activo && !widget.colapsado ? 3 : 0,
-      height: widget.activo ? 16 : 0,
-      margin: EdgeInsets.only(
-        right: widget.activo && !widget.colapsado ? 8 : 0,
-      ),
-      decoration: BoxDecoration(
-        color: p.primary,
-        borderRadius: BorderRadius.circular(99),
-      ),
-    );
-
-    final contenido = AnimatedContainer(
-      duration: AppMotion.fast,
-      curve: AppMotion.standard,
-      padding: EdgeInsets.symmetric(
-        horizontal: widget.colapsado ? 0 : 10,
-        vertical: 8,
-      ),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisAlignment: widget.colapsado
-            ? MainAxisAlignment.center
-            : MainAxisAlignment.start,
-        children: [
-          AnimatedSlide(
-            duration: AppMotion.fast,
-            offset: _hover && !widget.activo
-                ? const Offset(0.02, 0)
-                : Offset.zero,
-            child: Icon(
-              widget.icon,
-              size: 17,
-              color: widget.activo ? p.primary : color,
-            ),
-          ),
-          if (!widget.colapsado) ...[
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                widget.label,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: widget.activo ? FontWeight.w600 : FontWeight.w400,
-                  color: color,
-                  letterSpacing: 0.1,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: widget.colapsado ? 8 : 4,
-        vertical: 1,
-      ),
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
-        child: Tooltip(
-          message: widget.colapsado ? widget.label : '',
-          waitDuration: const Duration(milliseconds: 400),
-          child: InkWell(
-            onTap: widget.onTap,
-            borderRadius: BorderRadius.circular(8),
-            splashFactory: NoSplash.splashFactory,
-            highlightColor: Colors.transparent,
-            child: widget.colapsado
-                ? contenido
-                : Row(
-                    children: [
-                      indicador,
-                      Expanded(child: contenido),
-                    ],
-                  ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────── Footer de usuario ───────────────────────────
-
-class _UsuarioFooter extends StatelessWidget {
-  final String nombre;
-  final String rol;
-  final bool colapsado;
-  const _UsuarioFooter({
-    required this.nombre,
-    required this.rol,
-    required this.colapsado,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final p = AppPalette.of(context);
-    final themeProvider = context.watch<ThemeProvider>();
-    final inicial = nombre.isNotEmpty ? nombre[0].toUpperCase() : '?';
-
-    if (colapsado) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Column(
-          children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    gradient: p.primaryGradient,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      inicial,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-                const Positioned(
-                  right: -2,
-                  bottom: -2,
-                  child: PulseDot(size: 6, tooltip: 'Conectado'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            IconButton(
-              tooltip: 'Tema',
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              icon: Icon(
-                themeProvider.mode == ThemeMode.dark
-                    ? Icons.dark_mode_outlined
-                    : Icons.light_mode_outlined,
-                size: 18,
-                color: p.muted,
-              ),
-              onPressed: () => themeProvider.setMode(
-                themeProvider.mode == ThemeMode.dark
-                    ? ThemeMode.light
-                    : ThemeMode.dark,
-              ),
-            ),
-            IconButton(
-              tooltip: 'Configuración',
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              icon: Icon(Icons.settings_outlined, size: 18, color: p.muted),
-              onPressed: () => showSettings(context),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 8, 6, 10),
-      child: Row(
-        children: [
-          // Avatar con micro-indicador de conexión (pulse verde
-          // pegado abajo-derecha). Aporta sensación de "vivo".
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  gradient: p.primaryGradient,
-                  shape: BoxShape.circle,
-                  boxShadow: p.elevation(1),
-                ),
-                child: Center(
-                  child: Text(
-                    inicial,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                right: -2,
-                bottom: -2,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: p.surface,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const PulseDot(
-                    size: 7,
-                    tooltip: 'Conectado al backend',
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  nombre,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: p.text,
-                  ),
-                ),
-                Text(
-                  _rolLabel(rol),
-                  style: TextStyle(fontSize: 11, color: p.subtle),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            tooltip: 'Cambiar tema',
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-            icon: Icon(
-              themeProvider.mode == ThemeMode.dark
-                  ? Icons.dark_mode_outlined
-                  : Icons.light_mode_outlined,
-              size: 17,
-              color: p.muted,
-            ),
-            onPressed: () => themeProvider.setMode(
-              themeProvider.mode == ThemeMode.dark
-                  ? ThemeMode.light
-                  : ThemeMode.dark,
-            ),
-          ),
-          IconButton(
-            tooltip: 'Configuración',
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-            icon: Icon(Icons.settings_outlined, size: 17, color: p.muted),
-            onPressed: () => showSettings(context),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _rolLabel(String rol) => switch (rol) {
-    'administrador' => 'Administrador',
-    'investigador' => 'Investigador',
-    'estudiante' => 'Estudiante',
-    _ => rol,
-  };
-}

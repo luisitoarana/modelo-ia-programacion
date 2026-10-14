@@ -70,6 +70,8 @@ class ResultadoEjecucion {
     required this.timeout,
     required this.lenguaje,
   });
+
+  bool get ok => exitCode == 0 && !timeout;
 }
 
 /// Pestaña activa del panel inferior del editor.

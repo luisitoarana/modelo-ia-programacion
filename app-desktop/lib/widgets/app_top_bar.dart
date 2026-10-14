@@ -106,53 +106,49 @@ class AppTopBar extends StatelessWidget {
           final mostrarDetalles = constraints.maxWidth >= 1100;
           return Row(
         children: [
-          // ── 1. Izquierda: Toggle sidebar + Breadcrumb ──
+          // ── 1. Izquierda: Logo y Título interactivo (Toggle sidebar Ctrl+B) ──
           Tooltip(
             message: sidebarColapsado
                 ? 'Expandir barra lateral (Ctrl+B)'
                 : 'Colapsar barra lateral (Ctrl+B)',
             child: InkWell(
               onTap: onToggleSidebar,
-              borderRadius: BorderRadius.circular(AppRadius.sm),
+              borderRadius: BorderRadius.circular(6),
               child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: Icon(
-                  sidebarColapsado
-                      ? Icons.menu_rounded
-                      : Icons.menu_open_rounded,
-                  size: 18,
-                  color: p.muted,
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        gradient: p.primaryGradient,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const BrandLogo(
+                        size: 14,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Explicador IA',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: p.text,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
-          const SizedBox(width: 8),
-
-          // Logo / Icono de la suite
-          Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              gradient: p.primaryGradient,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: const BrandLogo(
-              size: 14,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 2),
 
           // Breadcrumb
           if (mostrarDetalles) ...[
-          Text(
-            'Explicador IA',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: p.text,
-              letterSpacing: -0.2,
-            ),
-          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6),
             child: Text(

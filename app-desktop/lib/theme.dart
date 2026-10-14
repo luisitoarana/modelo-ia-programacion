@@ -9,37 +9,43 @@ import 'package:flutter/material.dart';
 ///    para UI y monospace para código.
 ///  - Bordes muy sutiles y radios suaves (12–16 px).
 class AppColors {
-  // ---- Oscuro (alta legibilidad y contraste nítido) ----
-  static const darkBg = Color(0xFF18181B);       // fondo principal profundo
-  static const darkSurface = Color(0xFF222226);  // tarjetas, sidebar
-  static const darkSurface2 = Color(0xFF2C2C32); // hover / activo
-  static const darkSurface3 = Color(0xFF383840); // input, code bg
-  static const darkBorder = Color(0xFF383840);
-  static const darkBorderSoft = Color(0xFF2C2C32);
-  static const darkText = Color(0xFFF8FAFC);     // blanco puro de máxima nitidez
-  static const darkMuted = Color(0xFFCBD5E1);    // gris claro legible (sin blur)
-  static const darkSubtle = Color(0xFF94A3B8);   // gris medio legible
+  // ---- Oscuro (Obsidiana + Índigo Eléctrico + Cian Python) ----
+  static const darkBg = Color(0xFF0F1117);       // Canvas principal
+  static const darkSurface = Color(0xFF161922);  // Tarjetas, superficies
+  static const darkSurface2 = Color(0xFF1E2230); // Hover / activo
+  static const darkSurface3 = Color(0xFF262B3D); // Input, code bg
+  static const darkBorder = Color(0xFF282E40);
+  static const darkBorderSoft = Color(0xFF1C202C);
+  static const darkText = Color(0xFFF8FAFC);     // Blanco nítido
+  static const darkMuted = Color(0xFF94A3B8);    // Gris secundario
+  static const darkSubtle = Color(0xFF64748B);   // Gris atenuado
 
-  // ---- Claro (off-white estilo papel) ----
-  static const lightBg = Color(0xFFFAF9F5);
+  // ---- Claro (Estilo técnico limpio) ----
+  static const lightBg = Color(0xFFF8FAFC);
   static const lightSurface = Color(0xFFFFFFFF);
-  static const lightSurface2 = Color(0xFFF0EFE7);
-  static const lightSurface3 = Color(0xFFE8E6DA);
-  static const lightBorder = Color(0xFFE5E2D6);
-  static const lightBorderSoft = Color(0xFFEDEBE0);
-  static const lightText = Color(0xFF1F1E1B);
-  static const lightMuted = Color(0xFF6B6A5E);
-  static const lightSubtle = Color(0xFF8E8C7E);
+  static const lightSurface2 = Color(0xFFF1F5F9);
+  static const lightSurface3 = Color(0xFFE2E8F0);
+  static const lightBorder = Color(0xFFE2E8F0);
+  static const lightBorderSoft = Color(0xFFEEF2F6);
+  static const lightText = Color(0xFF0F172A);
+  static const lightMuted = Color(0xFF475569);
+  static const lightSubtle = Color(0xFF64748B);
+
+  // ---- Riel y Sidebar ----
+  static const railBg = Color(0xFF07080C);       // Activity rail 48px
+  static const sidebarBg = Color(0xFF0A0C10);    // Panel de proyectos 240px
 
   // ---- Acentos ----
-  static const primary = Color(0xFFD97757);        // terracota corporativo
-  static const primaryHover = Color(0xFFC96644);
-  static const primarySoft = Color(0xFFE9A287);
-  static const accent = Color(0xFFB85C3E);         // terracota oscuro
-  static const success = Color(0xFF6B8E5A);
-  static const danger = Color(0xFFC15F4D);
-  static const warning = Color(0xFFCE9A4F);
-  static const info = Color(0xFF6B8AAE);
+  static const primary = Color(0xFF6366F1);        // Índigo Eléctrico
+  static const primaryHover = Color(0xFF818CF8);
+  static const primarySoft = Color(0xFFA5B4FC);
+  static const accent = Color(0xFF38BDF8);         // Cian Python
+  static const cyan = Color(0xFF06B6D4);
+  static const success = Color(0xFF10B981);        // Esmeralda Run
+  static const successLight = Color(0xFF34D399);
+  static const danger = Color(0xFFEF4444);
+  static const warning = Color(0xFFF59E0B);
+  static const info = Color(0xFF38BDF8);
 }
 
 /// Tokens de animación — curvas y duraciones consistentes en toda la app.
@@ -142,12 +148,14 @@ class AppFonts {
     'Arial',
   ];
 
-  /// Tipografía limpia para titulares.
+  /// Tipografía limpia para titulares (estilo Codex / Linear).
   static const List<String> serifFallback = <String>[
     'Segoe UI',
-    'Georgia',
-    'Cambria',
-    'Times New Roman',
+    'Inter',
+    'SF Pro Display',
+    'Roboto',
+    'Helvetica Neue',
+    'Arial',
   ];
 
   /// Monospace para código.
@@ -206,6 +214,30 @@ class PaletaInfo {
 /// Catálogo de paletas. Cada paleta cambia toda la app.
 class Paletas {
   static const Map<String, PaletaInfo> todas = {
+    'obsidiana': PaletaInfo(
+      id: 'obsidiana',
+      nombre: 'Obsidiana & Índigo Eléctrico',
+      descripcion: 'Diseño técnico universitario Codex + VS Code. Índigo, Cian Python y Esmeralda.',
+      swatches: [Color(0xFF6366F1), Color(0xFF38BDF8), Color(0xFF0F1117)],
+      light: _PalCol(
+        bg: Color(0xFFF8FAFC), surface: Color(0xFFFFFFFF),
+        surface2: Color(0xFFF1F5F9), surface3: Color(0xFFE2E8F0),
+        border: Color(0xFFE2E8F0), borderSoft: Color(0xFFEEF2F6),
+        text: Color(0xFF0F172A), muted: Color(0xFF475569), subtle: Color(0xFF64748B),
+        primary: Color(0xFF6366F1), primaryHover: Color(0xFF4F46E5),
+        accent: Color(0xFF0284C7),
+        codeBg: Color(0xFFF8FAFC), codeText: Color(0xFF0F172A),
+      ),
+      dark: _PalCol(
+        bg: Color(0xFF0F1117), surface: Color(0xFF161922),
+        surface2: Color(0xFF1E2230), surface3: Color(0xFF262B3D),
+        border: Color(0xFF282E40), borderSoft: Color(0xFF1C202C),
+        text: Color(0xFFF8FAFC), muted: Color(0xFF94A3B8), subtle: Color(0xFF64748B),
+        primary: Color(0xFF6366F1), primaryHover: Color(0xFF818CF8),
+        accent: Color(0xFF38BDF8),
+        codeBg: Color(0xFF090B10), codeText: Color(0xFFF8FAFC),
+      ),
+    ),
     'terracota': PaletaInfo(
       id: 'terracota',
       nombre: 'Ámbar Cálido',
@@ -218,7 +250,7 @@ class Paletas {
         text: Color(0xFF1F1E1B), muted: Color(0xFF6B6A5E), subtle: Color(0xFF8E8C7E),
         primary: Color(0xFFD97757), primaryHover: Color(0xFFC96644),
         accent: Color(0xFFB85C3E),
-        codeBg: Color(0xFF1F1E1B), codeText: Color(0xFFF5F4ED),
+        codeBg: Color(0xFFFAF9F5), codeText: Color(0xFF1F1E1B),
       ),
       dark: _PalCol(
         bg: Color(0xFF18181B), surface: Color(0xFF222226),
@@ -242,7 +274,7 @@ class Paletas {
         text: Color(0xFF0F172A), muted: Color(0xFF475569), subtle: Color(0xFF94A3B8),
         primary: Color(0xFF2563EB), primaryHover: Color(0xFF1D4ED8),
         accent: Color(0xFF7C3AED),
-        codeBg: Color(0xFF0F172A), codeText: Color(0xFFE6EDF6),
+        codeBg: Color(0xFFF8FAFC), codeText: Color(0xFF0F172A),
       ),
       dark: _PalCol(
         bg: Color(0xFF0A0F1D), surface: Color(0xFF0F172A),
@@ -266,7 +298,7 @@ class Paletas {
         text: Color(0xFF1C2316), muted: Color(0xFF5C6B54), subtle: Color(0xFF8A9684),
         primary: Color(0xFF16A34A), primaryHover: Color(0xFF15803D),
         accent: Color(0xFFD97706),
-        codeBg: Color(0xFF1C2316), codeText: Color(0xFFEEF0EA),
+        codeBg: Color(0xFFF7F5EF), codeText: Color(0xFF1C2316),
       ),
       dark: _PalCol(
         bg: Color(0xFF1A201A), surface: Color(0xFF262D24),
@@ -290,7 +322,7 @@ class Paletas {
         text: Color(0xFF1C1530), muted: Color(0xFF5C5072), subtle: Color(0xFF9690A8),
         primary: Color(0xFF8B5CF6), primaryHover: Color(0xFF7C3AED),
         accent: Color(0xFFEC4899),
-        codeBg: Color(0xFF1C1530), codeText: Color(0xFFEEE9F7),
+        codeBg: Color(0xFFFAF8FF), codeText: Color(0xFF1C1530),
       ),
       dark: _PalCol(
         bg: Color(0xFF1A142A), surface: Color(0xFF251D3A),
@@ -314,7 +346,7 @@ class Paletas {
         text: Color(0xFF171717), muted: Color(0xFF525252), subtle: Color(0xFFA3A3A3),
         primary: Color(0xFF404040), primaryHover: Color(0xFF262626),
         accent: Color(0xFF737373),
-        codeBg: Color(0xFF171717), codeText: Color(0xFFFAFAFA),
+        codeBg: Color(0xFFFAFAFA), codeText: Color(0xFF171717),
       ),
       dark: _PalCol(
         bg: Color(0xFF0A0A0A), surface: Color(0xFF171717),
@@ -328,12 +360,12 @@ class Paletas {
     ),
   };
 
-  static PaletaInfo get(String id) => todas[id] ?? todas['terracota']!;
+  static PaletaInfo get(String id) => todas[id] ?? todas['obsidiana']!;
 }
 
 class AppTheme {
   /// Tema claro con paleta personalizable.
-  static ThemeData light({String paletaId = 'terracota'}) {
+  static ThemeData light({String paletaId = 'obsidiana'}) {
     final c = Paletas.get(paletaId).light;
     return _build(
       brightness: Brightness.light,
@@ -347,7 +379,7 @@ class AppTheme {
   }
 
   /// Tema oscuro con paleta personalizable.
-  static ThemeData dark({String paletaId = 'terracota'}) {
+  static ThemeData dark({String paletaId = 'obsidiana'}) {
     final c = Paletas.get(paletaId).dark;
     return _build(
       brightness: Brightness.dark,

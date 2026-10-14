@@ -67,7 +67,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final auth = context.watch<AuthProvider>();
 
     return Scaffold(
-      backgroundColor: p.bg,
+      backgroundColor: const Color(0xFF090A0F),
       body: Stack(
         children: [
           // Fondo ambiental con orbs flotantes que se mueven muy lentamente.
@@ -93,18 +93,20 @@ class _LoginScreenState extends State<LoginScreen> {
                     margin: const EdgeInsets.all(24),
                     padding: const EdgeInsets.all(32),
                     decoration: BoxDecoration(
-                      // Gradiente sutil para añadir profundidad sin ruido.
-                      gradient: p.surfaceGradient,
-                      borderRadius: BorderRadius.circular(AppRadius.xl),
-                      border: Border.all(color: p.borderSoft),
-                      // Elevación nivel 4 (modal) + halo terracota propio.
+                      color: const Color(0xFF141720),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFF282E40),
+                        width: 1,
+                      ),
                       boxShadow: [
-                        ...p.elevation(4),
                         BoxShadow(
-                          color: p.primary.withValues(alpha: 0.06),
-                          blurRadius: 72,
-                          spreadRadius: -8,
+                          color: const Color(0xFF6366F1).withValues(alpha: 0.12),
+                          blurRadius: 40,
+                          spreadRadius: -4,
+                          offset: const Offset(0, 4),
                         ),
+                        ...p.elevation(4),
                       ],
                     ),
                     child: Column(

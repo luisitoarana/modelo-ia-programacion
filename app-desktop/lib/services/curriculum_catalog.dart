@@ -50,14 +50,19 @@ class CurriculumCatalog {
       descripcionPedagogica:
           'Aprende a reservar un espacio en memoria con un nombre descriptivo y visualizarlo en la consola usando print().',
       codigoInicial:
-          "# Lección 1.1: Tu primera variable en Python\n"
-          "# 1. Guarda tu nombre en la variable 'estudiante'\n"
-          "estudiante = 'Luis'\n\n"
-          "# 2. Guarda tu edad en la variable 'edad'\n"
-          "edad = 20\n\n"
-          "# 3. Muestra el saludo en pantalla con print()\n"
-          "print('Hola, mi nombre es ' + estudiante)\n"
-          "print(f'Tengo {edad} años y estoy aprendiendo Python.')\n",
+          "# Reto 1.1: Tu primera variable en Python\n"
+          "# ==============================================================\n"
+          "# INSTRUCCIONES:\n"
+          "# 1. Guarda tu nombre en la variable 'estudiante'.\n"
+          "# 2. Guarda tu edad en la variable 'edad'.\n"
+          "# 3. Muestra en pantalla el saludo usando print().\n"
+          "# ==============================================================\n\n"
+          "# 1. Crea la variable estudiante:\n"
+          "estudiante = 'Tu Nombre'\n\n"
+          "# 2. Crea la variable edad:\n"
+          "edad = 0\n\n"
+          "# 3. Muestra el saludo con print():\n"
+          "# Escribe aquí tu print...\n",
       guiaDocente:
           'Pregunte al estudiante qué ocurre si cambia el nombre o intenta sumar un texto con un número.',
       pistas: [
@@ -80,18 +85,17 @@ class CurriculumCatalog {
       descripcionPedagogica:
           'Comprende las diferencias entre números enteros (int), decimales (float), texto (str) y valores booleanos (True/False).',
       codigoInicial:
-          "# Lección 1.2: Tipos primitivos en Python\n"
-          "precio = 19.99         # float (decimal)\n"
-          "cantidad = 3           # int (entero)\n"
-          "producto = 'Cuaderno'   # str (texto)\n"
-          "disponible = True      # bool (True o False)\n\n"
-          "# Inspección de tipos en tiempo de ejecución:\n"
-          "print('Tipo de precio:', type(precio))\n"
-          "print('Tipo de cantidad:', type(cantidad))\n"
-          "print('Tipo de producto:', type(producto))\n"
-          "print('Tipo de disponible:', type(disponible))\n\n"
-          "total = precio * cantidad\n"
-          "print(f'Total a pagar por {cantidad} {producto}s: \${total:.2f}')\n",
+          "# Reto 1.2: Tipos primitivos en Python\n"
+          "# ==============================================================\n"
+          "# INSTRUCCIONES:\n"
+          "# 1. Declara 'precio' con un número decimal (float), ej: 19.99.\n"
+          "# 2. Declara 'cantidad' con un número entero (int), ej: 3.\n"
+          "# 3. Declara 'producto' con texto (str), ej: 'Cuaderno'.\n"
+          "# 4. Declara 'disponible' con un booleano (bool): True o False.\n"
+          "# 5. Imprime el tipo de cada variable usando la función type().\n"
+          "# 6. Calcula el total (precio * cantidad) e imprímelo.\n"
+          "# ==============================================================\n\n"
+          "# Escribe aquí tus variables y prints:\n\n",
       guiaDocente:
           'Pídale al estudiante que intente escribir true en minúscula para observar NameError: ese nombre no está definido.',
       pistas: [
@@ -115,18 +119,15 @@ class CurriculumCatalog {
       descripcionPedagogica:
           'Descubre las 35 palabras reservadas oficiales de Python y por qué intentar usarlas como variables causa SyntaxError.',
       codigoInicial:
-          "# Lección 1.3: Palabras reservadas en Python (El Libro de Python)\n"
-          "import keyword\n\n"
-          "# 1. Lista oficial de palabras reservadas:\n"
-          "palabras = keyword.kwlist\n"
-          "print(f'Python tiene {len(palabras)} palabras reservadas oficiales:')\n"
-          "print(palabras[:12])  # Mostramos las primeras 12\n\n"
-          "# 2. EXPERIMENTO:\n"
-          "# Si descomentas la siguiente línea verás un SyntaxError:\n"
-          "# for = 10  # ¡Error! 'for' está reservada para bucles\n\n"
-          "# La forma correcta con un nombre válido:\n"
-          "repeticiones = 10\n"
-          "print(f'Variable válida creada con éxito: repeticiones = {repeticiones}')\n",
+          "# Reto 1.3: Palabras reservadas en Python\n"
+          "# ==============================================================\n"
+          "# INSTRUCCIONES:\n"
+          "# 1. Importa el módulo 'keyword'.\n"
+          "# 2. Imprime la cantidad total de palabras reservadas (len).\n"
+          "# 3. Imprime una lista con las primeras 12 palabras reservadas.\n"
+          "# 4. Crea una variable con un nombre válido (ej: repeticiones = 10).\n"
+          "# ==============================================================\n\n"
+          "# Escribe tu código aquí:\n\n",
       guiaDocente:
           'Haga que el estudiante intente asignar valores a def o if para que entienda el rol del intérprete.',
       pistas: [
@@ -149,15 +150,16 @@ class CurriculumCatalog {
       descripcionPedagogica:
           'Aprende la regla estructural más importante de Python: los bloques se definen con sangría consistente y dos puntos (:); se recomiendan 4 espacios.',
       codigoInicial:
-          "# Lección 1.4: La regla de oro de Python: Indentación\n"
+          "# Reto 1.4: La regla de oro de Python: Indentación\n"
+          "# ==============================================================\n"
+          "# INSTRUCCIONES:\n"
+          "# 1. Crea una variable 'nota' con una calificación numérica.\n"
+          "# 2. Escribe una estructura 'if' y 'else' con dos puntos (:).\n"
+          "# 3. Recuerda indentar (4 espacios) las instrucciones dentro del bloque.\n"
+          "# 4. Si la nota >= 7.0 imprime 'Aprobado', de lo contrario 'Reprobado'.\n"
+          "# ==============================================================\n\n"
           "nota = 8.5\n\n"
-          "# Los dos puntos ':' abren el bloque; las siguientes líneas llevan sangría:\n"
-          "if nota >= 7.0:\n"
-          "    print('¡Felicidades!')\n"
-          "    print('Has aprobado la materia.')\n"
-          "else:\n"
-          "    print('Debes prepararte para el examen de recuperación.')\n\n"
-          "print('Fin del programa.')  # Fuera del bloque condicional\n",
+          "# Completa la condición if/else aquí:\n\n",
       guiaDocente:
           'Pídale al estudiante que borre los espacios antes de print y observe el IndentationError.',
       pistas: [
@@ -182,17 +184,18 @@ class CurriculumCatalog {
       descripcionPedagogica:
           'Domina la toma de decisiones con múltiples alternativas y aprende por qué el orden de las condiciones es vital.',
       codigoInicial:
-          "# Lección 2.1: Clasificación de calificaciones\n"
+          "# Reto 2.1: Clasificación de calificaciones (if / elif / else)\n"
+          "# ==============================================================\n"
+          "# INSTRUCCIONES:\n"
+          "# 1. Dada la variable 'calificacion', clasifícala en una variable 'nivel':\n"
+          "#    - Si calificacion >= 90: nivel = 'Excelente'\n"
+          "#    - Si calificacion >= 80: nivel = 'Muy Bueno'\n"
+          "#    - Si calificacion >= 70: nivel = 'Aprobado'\n"
+          "#    - De lo contrario: nivel = 'Reprobado'\n"
+          "# 2. Imprime el nivel resultante con print().\n"
+          "# ==============================================================\n\n"
           "calificacion = 82\n\n"
-          "if calificacion >= 90:\n"
-          "    nivel = 'Excelente'\n"
-          "elif calificacion >= 80:\n"
-          "    nivel = 'Muy Bueno'\n"
-          "elif calificacion >= 70:\n"
-          "    nivel = 'Aprobado'\n"
-          "else:\n"
-          "    nivel = 'Reprobado'\n\n"
-          "print(f'Calificación {calificacion} -> Nivel: {nivel}')\n",
+          "# Escribe aquí la estructura if / elif / else:\n\n",
       guiaDocente:
           'Pregunte qué pasaría si invertimos el orden de las ramas comprobando primero >= 70.',
       pistas: [
@@ -215,13 +218,15 @@ class CurriculumCatalog {
       descripcionPedagogica:
           'Comprende el patrón algorítmico del acumulador para sumar elementos a través de ciclos repetitivos.',
       codigoInicial:
-          "# Lección 2.2: Patrón Acumulador con bucle for\n"
-          "acumulador_suma = 0  # Inicia en el elemento neutro de la suma\n\n"
-          "print('Traza paso a paso:')\n"
-          "for numero in range(1, 6):  # Genera 1, 2, 3, 4, 5\n"
-          "    acumulador_suma = acumulador_suma + numero\n"
-          "    print(f'  Paso: sumamos {numero} -> Total parcial: {acumulador_suma}')\n\n"
-          "print(f'Suma total acumulada: {acumulador_suma}')\n",
+          "# Reto 2.2: Patrón Acumulador con bucle for\n"
+          "# ==============================================================\n"
+          "# INSTRUCCIONES:\n"
+          "# 1. Inicializa un acumulador: suma_total = 0.\n"
+          "# 2. Usa un bucle 'for' con range(1, 6) para iterar del 1 al 5.\n"
+          "# 3. En cada paso, suma el número al acumulador y muestra la traza.\n"
+          "# 4. Al salir del bucle, imprime la suma final acumulada.\n"
+          "# ==============================================================\n\n"
+          "# Escribe tu solución aquí:\n\n",
       guiaDocente:
           'Trace con el alumno cómo cambia el valor de acumulador_suma en la memoria RAM paso a paso.',
       pistas: [
@@ -244,14 +249,15 @@ class CurriculumCatalog {
       descripcionPedagogica:
           'Aprende a almacenar colecciones ordenadas de datos y recorrerlas eficientemente en Python.',
       codigoInicial:
-          "# Lección 2.3: Listas e indexación en Python\n"
-          "lenguajes = ['Python', 'JavaScript', 'C++', 'Java']\n\n"
-          "print(f'Primer elemento (índice 0): {lenguajes[0]}')\n"
-          "print(f'Último elemento (índice -1): {lenguajes[-1]}')\n"
-          "print(f'Longitud total: {len(lenguajes)}')\n\n"
-          "print('\\nRecorrido con bucle for:')\n"
-          "for i, item in enumerate(lenguajes, start=1):\n"
-          "    print(f'  {i}. {item}')\n",
+          "# Reto 2.3: Listas e indexación en Python\n"
+          "# ==============================================================\n"
+          "# INSTRUCCIONES:\n"
+          "# 1. Crea una lista 'lenguajes' con al menos 4 nombres de tecnologías.\n"
+          "# 2. Imprime el primer elemento usando el índice [0].\n"
+          "# 3. Imprime el último elemento usando el índice negativo [-1].\n"
+          "# 4. Recorre la lista con un bucle 'for' e imprime cada elemento.\n"
+          "# ==============================================================\n\n"
+          "# Escribe tu solución aquí:\n\n",
       guiaDocente:
           'Provoque un IndexError pidiéndole al alumno acceder a lenguajes[10].',
       pistas: [
@@ -275,18 +281,20 @@ class CurriculumCatalog {
       descripcionPedagogica:
           'Aprende a proteger algoritmos contra entradas vacías que provocan ZeroDivisionError en cálculos de promedios.',
       codigoInicial:
-          "# Lección 2.4: Blindaje defensivo de promedios\n"
+          "# Reto 2.4: Blindaje defensivo de promedios\n"
+          "# ==============================================================\n"
+          "# INSTRUCCIONES:\n"
+          "# 1. Completa la función 'calcular_promedio_seguro(notas)'.\n"
+          "# 2. Si 'notas' está vacía (if not notas), retorna 0.0 con una advertencia.\n"
+          "# 3. Si tiene notas, retorna la suma dividida para la longitud.\n"
+          "# 4. Prueba con una lista con datos y con una lista vacía.\n"
+          "# ==============================================================\n\n"
           "def calcular_promedio_seguro(notas):\n"
-          "    # VALIDACIÓN DEFENSIVA:\n"
-          "    if not notas:  # Comprueba si la lista está vacía\n"
-          "        print('⚠️ Advertencia: Lista vacía recibida. Promedio es 0.0')\n"
-          "        return 0.0\n"
-          "    \n"
-          "    return sum(notas) / len(notas)\n\n"
-          "# Caso normal:\n"
-          "print('Promedio con notas:', calcular_promedio_seguro([8.0, 9.5, 7.0]))\n\n"
-          "# Caso límite peligroso:\n"
-          "print('Promedio lista vacía:', calcular_promedio_seguro([]))\n",
+          "    # Escribe aquí la validación defensiva:\n"
+          "    pass\n\n"
+          "# Pruebas:\n"
+          "print('Con notas:', calcular_promedio_seguro([8.0, 9.5, 7.0]))\n"
+          "print('Lista vacía:', calcular_promedio_seguro([]))\n",
       guiaDocente:
           'Muestre qué sucede al eliminar la validación if not notas: el sistema colapsa de inmediato.',
       pistas: [
@@ -312,17 +320,17 @@ class CurriculumCatalog {
       descripcionPedagogica:
           'Diseña funciones modulares con anotaciones de tipo y retorno explícito para arquitectura de software profesional.',
       codigoInicial:
-          "# Lección 3.1: Funciones modulares con anotaciones de tipo\n"
+          "# Reto 3.1: Funciones modulares con retorno (def / return)\n"
+          "# ==============================================================\n"
+          "# INSTRUCCIONES:\n"
+          "# 1. Completa 'calcular_estadisticas(numeros: list[float]) -> dict'.\n"
+          "# 2. Debe calcular y retornar un diccionario con: 'min', 'max' y 'media'.\n"
+          "# 3. Si la lista viene vacía, retorna ceros para todos los valores.\n"
+          "# 4. Prueba tu función con la lista 'datos'.\n"
+          "# ==============================================================\n\n"
           "def calcular_estadisticas(numeros: list[float]) -> dict[str, float]:\n"
-          "    \"\"\"Calcula min, max y promedio de una colección numérica.\"\"\"\n"
-          "    if not numeros:\n"
-          "        return {'min': 0.0, 'max': 0.0, 'media': 0.0}\n"
-          "    \n"
-          "    return {\n"
-          "        'min': min(numeros),\n"
-          "        'max': max(numeros),\n"
-          "        'media': round(sum(numeros) / len(numeros), 2),\n"
-          "    }\n\n"
+          "    # Escribe tu lógica de cálculo aquí:\n"
+          "    pass\n\n"
           "datos = [12.5, 45.0, 78.2, 33.1, 9.8]\n"
           "print('Resumen estadístico:', calcular_estadisticas(datos))\n",
       guiaDocente:
@@ -348,25 +356,19 @@ class CurriculumCatalog {
       descripcionPedagogica:
           'Análisis riguroso de complejidad algorítmica: comprende por qué dividir el espacio a la mitad reduce comparaciones de O(n) a O(log n).',
       codigoInicial:
-          "# Lección 3.2: Búsqueda Binaria - Complejidad O(log n)\n"
+          "# Reto 3.2: Búsqueda Binaria - Complejidad O(log n)\n"
+          "# ==============================================================\n"
+          "# INSTRUCCIONES:\n"
+          "# 1. Completa la función 'busqueda_binaria(coleccion, objetivo)'.\n"
+          "# 2. Usa punteros 'inicio = 0' y 'fin = len(coleccion) - 1'.\n"
+          "# 3. En un bucle while, calcula 'medio = (inicio + fin) // 2'.\n"
+          "# 4. Si coleccion[medio] == objetivo, retorna 'medio'.\n"
+          "# 5. Ajusta 'inicio' o 'fin' según corresponda.\n"
+          "# 6. Si no existe, retorna -1.\n"
+          "# ==============================================================\n\n"
           "def busqueda_binaria(coleccion: list[int], objetivo: int) -> int:\n"
-          "    \"\"\"Retorna índice o -1 si no existe. Precondición: lista ordenada.\"\"\"\n"
-          "    inicio = 0\n"
-          "    fin = len(coleccion) - 1\n"
-          "    pasos = 0\n"
-          "    \n"
-          "    while inicio <= fin:\n"
-          "        pasos += 1\n"
-          "        medio = (inicio + fin) // 2\n"
-          "        if coleccion[medio] == objetivo:\n"
-          "            print(f'-> Encontrado en solo {pasos} pasos (O(log n))')\n"
-          "            return medio\n"
-          "        elif coleccion[medio] < objetivo:\n"
-          "            inicio = medio + 1\n"
-          "        else:\n"
-          "            fin = medio - 1\n"
-          "            \n"
-          "    return -1\n\n"
+          "    # Escribe tu algoritmo aquí:\n"
+          "    pass\n\n"
           "numeros = [2, 5, 8, 12, 16, 23, 38, 56, 72, 91]\n"
           "pos = busqueda_binaria(numeros, 23)\n"
           "print(f'Objetivo 23 ubicado en índice: {pos}')\n",
@@ -392,26 +394,19 @@ class CurriculumCatalog {
       descripcionPedagogica:
           'Empaqueta datos y lógica dentro de clases reutilizables. Comprende el constructor __init__ y el rol de self.',
       codigoInicial:
-          "# Lección 3.3: Clases y Objetos en Python\n"
+          "# Reto 3.3: Clases y Objetos en Python\n"
+          "# ==============================================================\n"
+          "# INSTRUCCIONES:\n"
+          "# 1. Define la clase 'Estudiante' con constructor __init__(self, nombre, carrera).\n"
+          "# 2. Inicializa self.calificaciones = [] en el constructor.\n"
+          "# 3. Implementa el método 'agregar_nota(self, nota: float)'.\n"
+          "# 4. Implementa el método 'promedio(self) -> float'.\n"
+          "# 5. Instancia un objeto, agrega 2 notas y muestra el promedio.\n"
+          "# ==============================================================\n\n"
           "class Estudiante:\n"
-          "    def __init__(self, nombre: str, carrera: str):\n"
-          "        self.nombre = nombre\n"
-          "        self.carrera = carrera\n"
-          "        self.calificaciones: list[float] = []\n"
-          "    \n"
-          "    def agregar_nota(self, nota: float) -> None:\n"
-          "        if 0.0 <= nota <= 10.0:\n"
-          "            self.calificaciones.append(nota)\n"
-          "            \n"
-          "    def promedio(self) -> float:\n"
-          "        if not self.calificaciones:\n"
-          "            return 0.0\n"
-          "        return round(sum(self.calificaciones) / len(self.calificaciones), 2)\n\n"
-          "luis = Estudiante('Luis', 'Ingeniería en Sistemas')\n"
-          "luis.agregar_nota(9.5)\n"
-          "luis.agregar_nota(8.0)\n"
-          "print(f'Estudiante: {luis.nombre} ({luis.carrera})')\n"
-          "print(f'Promedio acumulado: {luis.promedio()}')\n",
+          "    # Escribe el constructor y métodos de la clase:\n"
+          "    pass\n\n"
+          "# Prueba instanciando un estudiante aquí:\n\n",
       guiaDocente:
           'Explique la analogía del molde de galletas (la clase) y las galletas horneadas (las instancias).',
       pistas: [
