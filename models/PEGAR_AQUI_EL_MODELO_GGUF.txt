@@ -1,0 +1,14 @@
+UBICACIÓN DEL MODELO NEURONAL PEDAGÓGICO LOCAL (OFFLINE)
+=============================================================
+
+Pegue en esta misma carpeta ("models/") el archivo descargado de Google Drive:
+
+Archivo requerido:
+  asistente_python_ia_v1.gguf
+
+Ruta resultante:
+  models/asistente_python_ia_v1.gguf
+
+Una vez pegado, inicie el sistema normalmente. El backend lo detectará 
+automáticamente y activará el "Motor Pedagógico Propio (Local Offline)".
+=============================================================

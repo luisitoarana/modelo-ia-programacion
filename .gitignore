@@ -32,7 +32,9 @@ datasets/synthetic/*
 !datasets/**/.gitkeep
 
 # Modelos y checkpoints (pesados)
-models/
+/models/*
+!/models/.gitkeep
+!/models/PEGAR_AQUI_EL_MODELO_GGUF.txt
 training/checkpoints/
 training/experiments/*/checkpoints/
 

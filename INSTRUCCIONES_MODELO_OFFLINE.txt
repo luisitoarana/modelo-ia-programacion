@@ -1,0 +1,32 @@
+================================================================================
+GUIA RÁPIDA: DÓNDE UBICAR EL MODELO LOCAL OFFLINE (asistente_python_ia_v1.gguf)
+================================================================================
+
+Estimado Profesor / Evaluador:
+
+Para ejecutar y evaluar el "Motor Neuronal Pedagógico Local (Offline)" sin necesidad 
+de conexión a internet ni claves de API externas, siga estos sencillos pasos:
+
+1. DESCARGA DEL MODELO:
+   Descargue el archivo de pesos neuronales desde el enlace de Google Drive proporcionado:
+   Nombre del archivo: asistente_python_ia_v1.gguf (Tamaño aprox.: ~1.1 GB)
+
+2. DÓNDE PEGARLO:
+   Copie el archivo descargado directamente dentro de la carpeta "models" en la raíz del proyecto:
+
+   Ruta exacta:
+   sistema-explicador-python-ia/
+   └── models/
+       └── asistente_python_ia_v1.gguf   <--- [PEGAR AQUÍ]
+
+3. INICIAR EL SISTEMA:
+   Inicie el backend y la aplicación normalmente (ejecutando "iniciar_sistema.bat" o 
+   siguiendo los pasos del README.md).
+
+4. DETECCIÓN AUTOMÁTICA:
+   Al arrancar, el backend detecta automáticamente la presencia del archivo en "models/" 
+   y habilita la opción:
+   -> "Motor Pedagógico Propio (Local Offline)" en el selector de modelos.
+
+¡Listo! Con esto el sistema funcionará 100% de manera autónoma y local.
+================================================================================
