@@ -134,6 +134,33 @@ flowchart LR
 
 ### Administración y evaluación
 
+**Cuenta privada del administrador:** el correo y la contraseña reales se configuran únicamente en `backend/.env`, excluido de Git. No existen credenciales privadas incrustadas en la aplicación o en este README. Para crear o actualizar esa cuenta con los valores del archivo privado:
+
+```powershell
+Push-Location backend
+.\.venv\Scripts\python.exe scripts/configurar_cuentas.py --admin
+Pop-Location
+```
+
+**Cuenta pública de demostración:** `demo.estudiante@example.org`, contraseña **`DemoPythonIA2026!`**. Tiene únicamente rol de estudiante y, al crearla, empieza en pretest. Para habilitarla en tu propia instalación, ejecuta desde `backend`:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/configurar_cuentas.py --demo
+```
+
+Esta cuenta compartida es solo para demostrar el sistema: cualquiera que lea GitHub puede utilizarla en una instalación que la habilite y consultar sus respuestas de prueba. No introduzcas datos personales ni la uses como participante de la tesis. Cada estudiante real debe registrarse con su cuenta individual. El código publicado no contiene la base de datos del servidor; descargarlo no crea automáticamente usuarios en otro equipo.
+
+En Docker, reconstruye el backend después de actualizar el código y ejecuta el aprovisionamiento dentro del contenedor. Este utiliza las credenciales privadas recibidas desde `backend/.env`:
+
+```powershell
+docker compose --env-file backend/.env up -d --build db backend
+docker compose --env-file backend/.env exec backend python scripts/configurar_cuentas.py --admin --demo
+```
+
+La actualización explícita de administrador reemplaza su contraseña por la del archivo privado; el arranque normal no restablece contraseñas de cuentas existentes.
+
+En **Administración → Participantes**, asigna a cada alumno la fase **pre**, **intervención** o **post**. En pre y post se bloquea la asistencia de IA. En la revisión se reúnen sus respuestas, código y calificación docente, con exportación CSV/JSON. El administrador puede consultar la información; la calificación corresponde a la persona docente autorizada, no al modelo.
+
 Inicia sesión con la cuenta administradora y abre **Administración** en el menú de la aplicación. Allí se consultan participantes e intentos, se revisan respuestas y se exportan evidencias. La calificación docente se conserva separada de los comentarios del asistente. Los estudiantes pueden registrarse desde la propia aplicación.
 
 La cuenta que entra no representa a todos los estudiantes: cada uno utiliza su usuario. Antes de recoger datos, define el grupo, el consentimiento, la rúbrica y el pre/post en el [protocolo experimental](research/PROTOCOLO_PRE_POST_ANDAMIAJE.md). No publiques respuestas, correos ni exportaciones de estudiantes en GitHub.

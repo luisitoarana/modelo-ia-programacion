@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 ARG INSTALL_LOCAL_MODEL=true
 RUN if [ "$INSTALL_LOCAL_MODEL" = "true" ]; then CMAKE_ARGS="-DGGML_NATIVE=OFF" pip install --no-cache-dir -r requirements-local-model.txt; fi
 COPY backend/app ./app
+COPY backend/scripts ./scripts
 COPY mcp_server /workspace/mcp_server
 COPY knowledge_base /workspace/knowledge_base
 RUN python -m pip install --no-cache-dir pip==26.2.1 && useradd --create-home explicador && mkdir -p /workspace/proyectos /workspace/backend/logs && chown -R explicador:explicador /workspace
