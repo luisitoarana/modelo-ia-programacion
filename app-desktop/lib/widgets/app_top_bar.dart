@@ -5,6 +5,7 @@ import '../providers.dart';
 import '../screens/home_screen.dart';
 import '../theme.dart';
 import 'brand_logo.dart';
+import 'estudio_docente.dart';
 
 /// Barra superior de navegación y controles del sistema.
 ///
@@ -74,7 +75,7 @@ class AppTopBar extends StatelessWidget {
     final Color modeloColor = p.primary;
 
     final String modoEstudioLabel = settings.esBloqueadoPostTest
-        ? 'Post-Test (Bloqueado)'
+        ? (settings.faseEstudio == 'pre' ? 'Pretest (sin IA)' : 'Postest (sin IA)')
         : (settings.esSinAcompanamiento ? 'Solo Código' : 'Acompañamiento');
     final Color modoEstudioColor = settings.esBloqueadoPostTest
         ? AppColors.danger
@@ -547,12 +548,14 @@ void _mostrarDialogoModoEstudio(BuildContext context) {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               tileColor: settings.esBloqueadoPostTest ? p.surface2 : null,
               leading: const Icon(Icons.lock_clock_rounded, color: AppColors.danger),
-              title: const Text('Fase de Evaluación Post-Test', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.danger)),
-              subtitle: const Text('Asistente IA bloqueado (Resolución y ejecución independiente)', style: TextStyle(fontSize: 11)),
+              title: const Text('Pretest y postest', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.danger)),
+              subtitle: Text(context.read<AuthProvider>().usuario?.esInvestigador == true
+                  ? 'Administrar evaluaciones y abrir una vista previa docente'
+                  : 'El docente asigna y abre tu evaluación; no se activa desde este selector.', style: const TextStyle(fontSize: 11)),
               trailing: settings.esBloqueadoPostTest ? const Icon(Icons.check_circle_rounded, color: AppColors.danger, size: 18) : null,
-              onTap: settings.asignacionActiva ? null : () {
-                settings.setModoAcompanamiento('bloqueado_post_test');
+              onTap: context.read<AuthProvider>().usuario?.esInvestigador != true ? null : () {
                 Navigator.pop(ctx);
+                abrirEstudioDocente(context);
               },
             ),
           ],

@@ -124,6 +124,25 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Devuelve la instancia única de Settings (singleton vía cache)."""
+    import os
+    if os.environ.get('PYTHONIA_DEMO_AISLADA') == '1':
+        # Una cuenta administradora pública nunca comparte BD, JWT ni claves
+        # de proveedores con la instalación privada, ni siquiera por herencia.
+        import secrets
+        carpeta = Path(__file__).resolve().parents[1] / '.runtime' / 'demo-admin'
+        carpeta.mkdir(parents=True, exist_ok=True)
+        clave = carpeta / 'jwt.key'
+        try:
+            with clave.open('x', encoding='utf-8') as archivo:
+                archivo.write(secrets.token_urlsafe(48))
+        except FileExistsError:
+            pass
+        valores = {nombre: campo.default for nombre, campo in Settings.model_fields.items()}
+        valores.update(database_url='sqlite+aiosqlite:///' + (carpeta / 'demo.db').as_posix(),
+                       secret_key=clave.read_text(encoding='utf-8'),
+                       admin_email='demo.admin@example.org', admin_password='DemoAdminPythonIA2026!',
+                       admin_nombre='Administrador de demostración', app_host='127.0.0.1', app_port=8766)
+        return Settings(_env_file=None, **valores)
     return Settings()
 
 

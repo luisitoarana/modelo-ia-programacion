@@ -45,6 +45,14 @@ Desde app-desktop: `flutter test` y `flutter build windows --debug`. Las pruebas
 
 ## Límites y siguientes pasos
 
+### Corrección de acceso docente y demostración aislada
+
+Se corrigió el selector que permitía persistir el bloqueo Post-Test en una cuenta administradora. El escritorio mantiene disponibles los controles docentes y permite abrir vistas previas de pretest y postest desde Administración o desde el selector superior. Las vistas previas funcionan con las evaluaciones cerradas, permiten escribir y simular la entrega, y no crean registros de participantes ni alteran resultados. La API de vista previa exige rol administrador/investigador; la entrega real continúa reservada a estudiantes.
+
+Comprobaciones posteriores a esta corrección: **37 pruebas backend y 25 pruebas Flutter aprobadas**. Se comprobó por HTTP contra el backend local que la cuenta administradora privada sigue activa, que su contraseña configurada coincide y que ambas vistas previas devuelven seis preguntas. No se imprimieron ni publicaron sus credenciales.
+
+El nuevo `backend/scripts/iniciar_demo_admin.py` prepara un administrador público únicamente en una base SQLite separada, con clave JWT propia, sin heredar el `.env` ni claves de proveedores. El servidor demo escucha en localhost:8766. Se verificaron el inicio de sesión y la vista previa con esa cuenta (HTTP 200), así como el rechazo del administrador público en el servidor privado, de la cuenta privada en la demo y del token demo en el servidor privado (HTTP 401). El servidor demo utilizado en estas comprobaciones se detuvo al terminar; los datos de demostración quedan en un directorio excluido de Git.
+
 Las pruebas del software no validan el instrumento ni demuestran aprendizaje. Se necesita aprobación docente de las seis parejas de consignas, tiempos, rúbrica y procedimiento; pilotaje y revisión de dificultad; acuerdo entre evaluadores; y decidir cómo tratar incidencias del modelo antes del ensayo real. El banco mide transferencia cercana de un subconjunto de temas, no dominio general de Python.
 
 La revisión ciega es una opción de presentación/exportación, no anonimización frente a personal autorizado. Se guarda la última revisión por pregunta y su autor/fecha, sin historial inmutable de todos los cambios de nota. Hay avisos de deprecación Python y de estilo Flutter previos; no se declara que todo el análisis estático esté limpio.

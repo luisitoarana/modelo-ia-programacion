@@ -8,6 +8,7 @@ import 'package:app_desktop/widgets/evaluacion_estudio.dart';
 class _Api extends ApiClient {
   Map<String, dynamic>? enviada;
   bool falla = false;
+  bool preview = false;
   int revision = 1;
   Map<String, dynamic> entrega([bool finalizada = false]) => {
     'id': 'entrega-1',
@@ -28,13 +29,22 @@ class _Api extends ApiClient {
     'respuestas': enviada ?? {},
   };
   @override
+  Future<Map<String, dynamic>> vistaPreviaEvaluacion(String fase) async {
+    preview = true;
+    return {'fase': fase, 'version': 'piloto-6-v1',
+      'abierto_estudiantes': false, 'preguntas': entrega()['preguntas']};
+  }
+  @override
   Future<Map<String, dynamic>> estudioActual() async => {
     'fase': 'pre',
     'abierto': true,
     'entrega': null,
   };
   @override
-  Future<Map<String, dynamic>> iniciarEvaluacion() async => entrega();
+  Future<Map<String, dynamic>> iniciarEvaluacion() async {
+    expect(preview, isFalse, reason: 'Una vista previa no crea una entrega real');
+    return entrega();
+  }
   @override
   Future<Map<String, dynamic>> guardarEvaluacion(
     String id,
@@ -42,6 +52,7 @@ class _Api extends ApiClient {
     int rev, {
     bool finalizar = false,
   }) async {
+    expect(preview, isFalse, reason: 'Una vista previa no guarda respuestas reales');
     if (falla) throw ApiException('Sin conexión');
     expect(id, 'entrega-1');
     expect(rev, revision);
@@ -76,6 +87,32 @@ Future<void> montar(WidgetTester tester, _Api api) async {
 }
 
 void main() {
+  testWidgets('vista previa docente permite responder con evaluación cerrada sin enviar datos', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1100, 850));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final api = _Api();
+    await tester.pumpWidget(MultiProvider(providers: [
+      ChangeNotifierProvider(create: (_) => AuthProvider(api)),
+      ChangeNotifierProvider(create: (_) => SettingsProvider()),
+    ], child: const MaterialApp(home: Scaffold(body: EvaluacionEstudio(vistaPrevia: 'post')))));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('SIMULACIÓN DOCENTE'), findsOneWidget);
+    await tester.tap(find.text('Iniciar evaluación'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('evaluacion-codigo-m1_1')), 'print(20)');
+    await tester.ensureVisible(find.text('Guardar borrador'));
+    await tester.tap(find.text('Guardar borrador'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Entregar evaluación'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Entregar'));
+    await tester.pumpAndSettle();
+    expect(find.text('Simulación completada. No se envió una entrega de estudiante.'), findsOneWidget);
+    expect(api.enviada, isNull);
+    expect(api.preview, isTrue);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets(
     'guarda código y explicación breve; entrega final queda de solo lectura',
     (tester) async {

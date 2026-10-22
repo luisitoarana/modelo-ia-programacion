@@ -58,6 +58,10 @@ class _HomeScreenState extends State<HomeScreen> {
       final usuarioId = context.read<AuthProvider>().usuario?.id;
       if (usuarioId != null) context.read<SettingsProvider>().activarPerfil(usuarioId);
       context.read<SettingsProvider>().setAsignacionEstudio(const {'asignado': false});
+      if (context.read<AuthProvider>().usuario?.esInvestigador == true &&
+          context.read<SettingsProvider>().esBloqueadoPostTest) {
+        context.read<SettingsProvider>().setModoAcompanamiento('con_acompanamiento');
+      }
       _cargarAsignacionEstudio();
       // Onboarding la primera vez.
       mostrarOnboardingSiPrimeraVez(context);
@@ -221,9 +225,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       Expanded(
                         child: !_asignacionConsultada
                           ? Center(child: TextButton(onPressed: _cargarAsignacionEstudio, child: const Text('Comprobar fase de estudio')))
-                          : context.watch<SettingsProvider>().pendienteAsignacion
+                          : context.watch<AuthProvider>().usuario?.esInvestigador != true && context.watch<SettingsProvider>().pendienteAsignacion
                           ? const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('El estudio está activo. Espera a que el docente asigne tu grupo y pretest; todavía no puedes utilizar la IA.')))
-                          : context.watch<SettingsProvider>().esBloqueadoPostTest
+                          : context.watch<AuthProvider>().usuario?.esInvestigador != true && context.watch<SettingsProvider>().esBloqueadoPostTest
                           ? EvaluacionEstudio(key: ValueKey(context.watch<SettingsProvider>().faseEstudio))
                           : Column(children: [
                             if (context.watch<SettingsProvider>().faseEstudio == 'intervencion') const TareasIntervencion(),

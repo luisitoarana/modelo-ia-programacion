@@ -3,9 +3,33 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers.dart';
 
+Future<void> abrirVistaPreviaEvaluacion(BuildContext context, String fase) =>
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        child: SizedBox(
+          width: 1000,
+          height: 760,
+          child: Column(
+            children: [
+              ListTile(
+                title: const Text('Vista previa docente'),
+                trailing: IconButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  icon: const Icon(Icons.close),
+                ),
+              ),
+              Expanded(child: EvaluacionEstudio(vistaPrevia: fase)),
+            ],
+          ),
+        ),
+      ),
+    );
+
 /// Instrumento sin IA: el código se escribe aquí y se entrega al docente.
 class EvaluacionEstudio extends StatefulWidget {
-  const EvaluacionEstudio({super.key});
+  const EvaluacionEstudio({super.key, this.vistaPrevia});
+  final String? vistaPrevia;
   @override
   State<EvaluacionEstudio> createState() => _EvaluacionEstudioState();
 }
@@ -60,11 +84,19 @@ class _EvaluacionEstudioState extends State<EvaluacionEstudio> {
       _error = null;
     });
     try {
-      final estado = await context.read<AuthProvider>().api.estudioActual();
+      final api = context.read<AuthProvider>().api;
+      final estado = widget.vistaPrevia == null
+          ? await api.estudioActual()
+          : {
+              ...await api.vistaPreviaEvaluacion(widget.vistaPrevia!),
+              'abierto': true,
+            };
       if (!mounted) return;
       setState(() {
         _estado = estado;
-        _adoptar((estado['entrega'] as Map?)?.cast<String, dynamic>());
+        if (widget.vistaPrevia == null) {
+          _adoptar((estado['entrega'] as Map?)?.cast<String, dynamic>());
+        }
       });
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
@@ -79,7 +111,18 @@ class _EvaluacionEstudioState extends State<EvaluacionEstudio> {
       _error = null;
     });
     try {
-      final e = await context.read<AuthProvider>().api.iniciarEvaluacion();
+      final e = widget.vistaPrevia == null
+          ? await context.read<AuthProvider>().api.iniciarEvaluacion()
+          : <String, dynamic>{
+              'id': 'vista-previa',
+              'fase': widget.vistaPrevia,
+              'version': _estado!['version'],
+              'estado': 'borrador',
+              'revision': 1,
+              'iniciada_en': DateTime.now().toIso8601String(),
+              'preguntas': _estado!['preguntas'],
+              'respuestas': <String, dynamic>{},
+            };
       if (mounted) setState(() => _adoptar(e));
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
@@ -127,12 +170,18 @@ class _EvaluacionEstudioState extends State<EvaluacionEstudio> {
       _error = null;
     });
     try {
-      final e = await context.read<AuthProvider>().api.guardarEvaluacion(
-        _entrega!['id'] as String,
-        respuestas,
-        _entrega!['revision'] as int,
-        finalizar: finalizar,
-      );
+      final e = widget.vistaPrevia != null
+          ? <String, dynamic>{
+              ..._entrega!,
+              'respuestas': respuestas,
+              'estado': finalizar ? 'enviado' : 'borrador',
+            }
+          : await context.read<AuthProvider>().api.guardarEvaluacion(
+              _entrega!['id'] as String,
+              respuestas,
+              _entrega!['revision'] as int,
+              finalizar: finalizar,
+            );
       if (!mounted) return;
       setState(() {
         _entrega = e;
@@ -165,6 +214,10 @@ class _EvaluacionEstudioState extends State<EvaluacionEstudio> {
           style: Theme.of(context).textTheme.headlineSmall,
         ),
         const SizedBox(height: 12),
+        if (widget.vistaPrevia != null)
+          const Text(
+            'SIMULACIÓN DOCENTE: puedes responder y probar la entrega aunque esté cerrada para estudiantes. Nada de esta simulación se guarda en la base de datos ni entra en los resultados.',
+          ),
         const Text(
           'Evaluación individual para ambos grupos. Escribe tu código y explica con tus palabras. No se utiliza IA, pistas, soluciones ni ejecución de código. Una respuesta corta puede ser correcta; si no sabes, puedes dejarla sin responder.',
         ),
@@ -180,7 +233,9 @@ class _EvaluacionEstudioState extends State<EvaluacionEstudio> {
         if (_entrega == null) ...[
           const SizedBox(height: 20),
           Text(
-            _estado?['abierto'] == true
+            widget.vistaPrevia != null
+                ? 'Vista previa de las preguntas seleccionadas para nuevas evaluaciones.'
+                : _estado?['abierto'] == true
                 ? 'El docente ha abierto la evaluación.'
                 : 'Evaluación cerrada. Espera la indicación del docente y pulsa Actualizar.',
           ),
@@ -208,7 +263,9 @@ class _EvaluacionEstudioState extends State<EvaluacionEstudio> {
           Text('Inicio: ${_entrega!['iniciada_en']} · ${_entrega!['version']}'),
           if (enviado)
             Text(
-              'Entrega recibida por el servidor: ${_entrega!['enviada_en']}. Pendiente de revisión docente.',
+              widget.vistaPrevia != null
+                  ? 'Simulación completada. No se envió una entrega de estudiante.'
+                  : 'Entrega recibida por el servidor: ${_entrega!['enviada_en']}. Pendiente de revisión docente.',
             ),
           for (final p in _entrega!['preguntas'] as List)
             Card(

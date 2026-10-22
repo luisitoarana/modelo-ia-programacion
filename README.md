@@ -150,6 +150,14 @@ Pop-Location
 
 Esta cuenta compartida es solo para demostrar el sistema: cualquiera que lea GitHub puede utilizarla en una instalación que la habilite y consultar sus respuestas de prueba. No introduzcas datos personales ni la uses como participante de la tesis. Cada estudiante real debe registrarse con su cuenta individual. El código publicado no contiene la base de datos del servidor; descargarlo no crea automáticamente usuarios en otro equipo.
 
+**Administrador público para probar el código abierto:** `demo.admin@example.org`, contraseña **`DemoAdminPythonIA2026!`**. Se crea en un servidor de demostración independiente, con su propia base de datos y firma de sesiones. Desde `backend`, después de instalar las dependencias:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/iniciar_demo_admin.py
+```
+
+El servidor demo escucha solo en `http://127.0.0.1:8766`. En **Configuración → Avanzado → Conexión al backend** de la aplicación cambia la URL a `http://127.0.0.1:8766/api/v1` y entra con el administrador público. Para regresar a tu instalación privada, restaura la URL anterior e inicia sesión con tu cuenta privada. El servidor normal sigue utilizando su `.env` y su puerto habitual. El script demo no carga ese archivo ni hereda sus claves: sus usuarios y respuestas están en `backend/.runtime/demo-admin/demo.db`. Cualquier usuario que conozca las credenciales públicas tiene control de los datos de esa demostración; utiliza exclusivamente datos ficticios. Para crear sus cuentas sin iniciar el servidor, añade `--preparar` al comando. No publiques este servidor de demostración como servidor de alumnos.
+
 En Docker, reconstruye el backend después de actualizar el código y ejecuta el aprovisionamiento dentro del contenedor. Este utiliza las credenciales privadas recibidas desde `backend/.env`:
 
 ```powershell
@@ -162,6 +170,8 @@ La actualización explícita de administrador reemplaza su contraseña por la de
 En **Administración → Participantes**, asigna a cada alumno la fase **pre**, **intervención** o **post**. En pre y post se bloquea la asistencia de IA. En la revisión se reúnen sus respuestas, código y calificación docente, con exportación CSV/JSON. El administrador puede consultar la información; la calificación corresponde a la persona docente autorizada, no al modelo.
 
 Inicia sesión con la cuenta administradora y abre **Administración** en el menú de la aplicación. Allí se consultan participantes e intentos, se revisan respuestas y se exportan evidencias. La calificación docente se conserva separada de los comentarios del asistente. Los estudiantes pueden registrarse desde la propia aplicación.
+
+Para ver o probar las evaluaciones, pulsa **Pretest, postest y vista previa docente** dentro de Administración. También puedes abrir el panel desde el selector superior **Pretest y postest**. Los botones **Vista previa pretest** y **Vista previa postest** muestran las preguntas seleccionadas, permiten escribir respuestas y simular la entrega incluso cuando el examen está cerrado. La simulación no crea entregas ni resultados de estudiantes. Tu cuenta conserva su rol de administrador y los controles de apertura, asignación, revisión y exportación. El bloqueo sin IA de las evaluaciones se aplica a los estudiantes; el administrador no debe asignarse como participante para inspeccionarlas.
 
 La cuenta que entra no representa a todos los estudiantes: cada uno utiliza su usuario. Antes de recoger datos, define el grupo, el consentimiento, la rúbrica y el pre/post en el [protocolo experimental](research/PROTOCOLO_PRE_POST_ANDAMIAJE.md). No publiques respuestas, correos ni exportaciones de estudiantes en GitHub.
 

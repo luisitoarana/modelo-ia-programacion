@@ -9,8 +9,17 @@ import 'package:app_desktop/screens/home_screen.dart';
 import 'package:app_desktop/theme.dart';
 import 'package:app_desktop/widgets/settings/section_administracion.dart';
 import 'package:app_desktop/widgets/sidebar.dart';
+import 'package:app_desktop/widgets/app_top_bar.dart';
 
 class _ApiDocente extends ApiClient {
+  @override
+  Future<Map<String, dynamic>> configuracionEstudio() async => {
+    'banco': [], 'preguntas_activas': [],
+  };
+  @override
+  Future<Map<String, dynamic>> resumenEstudio() async => {
+    'participantes': [], 'entregas': [],
+  };
   @override
   Future<Map<String, dynamic>> estadoModelo() async => {};
   @override
@@ -58,6 +67,21 @@ Widget _app(Widget home, {String rol = 'administrador'}) {
 }
 
 void main() {
+  testWidgets('el selector del administrador abre controles y vista previa sin activar bloqueo', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(2400, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(_app(AppTopBar(vista: VistaPrincipal.chat,
+      onAbrirPalette: () {}, onAbrirAtajos: () {}, onAbrirSettings: () {},
+      onToggleSidebar: () {}, sidebarColapsado: false)));
+    await tester.tap(find.text('Acompañamiento'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pretest y postest'));
+    await tester.pumpAndSettle();
+    expect(find.text('Vista previa pretest'), findsOneWidget);
+    expect(find.text('Vista previa postest'), findsOneWidget);
+    final settings = tester.element(find.byType(AppTopBar)).read<SettingsProvider>();
+    expect(settings.esBloqueadoPostTest, isFalse);
+  });
   testWidgets('el administrador abre la revisión directamente desde el menú', (tester) async {
     tester.view.physicalSize = const Size(1400, 1000);
     tester.view.devicePixelRatio = 1;

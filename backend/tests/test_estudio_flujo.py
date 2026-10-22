@@ -41,6 +41,32 @@ async def prueba():
 
 
 @pytest.mark.asyncio
+async def test_docente_previsualiza_sin_entregas_ni_asignacion(prueba):
+    c, usuarios = prueba
+    profesor = usuarios['profesor'][0]
+    cfg = dict(estudio_activo=True, pre_abierto=False, post_abierto=False,
+               practica_guiada=True, preguntas_activas=['m1_1', 'm2_1', 'm3_1'])
+    assert (await c.put('/api/v1/estudio/configuracion', headers=profesor, json=cfg)).status_code == 200
+    for rol in ['profesor', 'evaluador']:
+        h = usuarios[rol][0]
+        estado = (await c.get('/api/v1/estudio/actual', headers=h)).json()
+        assert estado['pendiente_asignacion'] is False
+        for fase in ['pre', 'post']:
+            r = await c.get(f'/api/v1/estudio/docente/vista-previa/{fase}', headers=h)
+            assert r.status_code == 200, r.text
+            assert r.json()['vista_previa'] is True
+            assert r.json()['abierto_estudiantes'] is False
+            assert [p['consigna'] for p in r.json()['preguntas']] == [p[fase] for p in BANCO if p['id'] in cfg['preguntas_activas']]
+        # El modo docente nunca se convierte en participante del estudio.
+        assert (await c.post('/api/v1/estudio/iniciar', headers=h, json={})).status_code == 403
+    assert (await c.get('/api/v1/estudio/docente/vista-previa/post', headers=usuarios['directo'][0])).status_code == 403
+    assert (await c.get('/api/v1/estudio/docente/vista-previa/post')).status_code == 401
+    assert (await c.get('/api/v1/estudio/docente/vista-previa/otro', headers=profesor)).status_code == 422
+    assert (await c.get('/api/v1/estudio/docente/resumen', headers=profesor)).json()['entregas'] == []
+    assert (await c.get('/api/v1/auth/yo', headers=profesor)).json()['rol'] == 'administrador'
+
+
+@pytest.mark.asyncio
 async def test_pre_intervencion_post_ambos_grupos_y_revision(prueba):
     c, usuarios = prueba
     profesor = usuarios['profesor'][0]

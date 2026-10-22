@@ -333,6 +333,8 @@ class ApiClient {
 
   Future<Map<String, dynamic>> estudioActual() async =>
       (await _get('/estudio/actual')) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> vistaPreviaEvaluacion(String fase) async =>
+      (await _get('/estudio/docente/vista-previa/$fase')) as Map<String, dynamic>;
   Future<Map<String, dynamic>> iniciarEvaluacion() async =>
       (await _post('/estudio/iniciar', {})) as Map<String, dynamic>;
   Future<Map<String, dynamic>> guardarEvaluacion(String id, Map<String, dynamic> respuestas, int revision, {bool finalizar = false}) async =>

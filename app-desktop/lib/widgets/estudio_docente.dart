@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers.dart';
 import '../services/dialogos_nativos.dart';
+import 'evaluacion_estudio.dart';
 
 Future<void> abrirEstudioDocente(BuildContext context) => showDialog<void>(
   context: context,
@@ -427,6 +428,19 @@ class _EstudioDocenteState extends State<EstudioDocente> {
         ),
       ),
       if (_ocupado) const LinearProgressIndicator(),
+      Wrap(
+        spacing: 12,
+        children: [
+          for (final fase in ['pre', 'post'])
+            OutlinedButton.icon(
+              onPressed: () => abrirVistaPreviaEvaluacion(context, fase),
+              icon: const Icon(Icons.visibility_outlined),
+              label: Text(
+                fase == 'pre' ? 'Vista previa pretest' : 'Vista previa postest',
+              ),
+            ),
+        ],
+      ),
       if (_error != null)
         Padding(
           padding: const EdgeInsets.all(12),

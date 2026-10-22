@@ -90,7 +90,8 @@ async def actual(u: Actual, db: DB):
     asignacion = await db.get(AsignacionEstudio, u.id)
     cfg = await configuracion(db)
     if not asignacion:
-        return dict(asignado=False, fase=None, abierto=False, pendiente_asignacion=cfg['estudio_activo'])
+        return dict(asignado=False, fase=None, abierto=False,
+                    pendiente_asignacion=cfg['estudio_activo'] and u.rol == RolUsuario.ESTUDIANTE)
     fase = asignacion.fase
     entrega = await db.scalar(select(EntregaEstudio).where(EntregaEstudio.usuario_id == u.id, EntregaEstudio.fase == fase))
     return dict(asignado=True, fase=fase, condicion=asignacion.condicion,
@@ -98,6 +99,17 @@ async def actual(u: Actual, db: DB):
                 entrega=serializar(entrega) if entrega else None,
                 tareas=[dict(id=p['id'], modulo=p['modulo'], consigna=p['practica']) for p in BANCO]
                 if fase == 'intervencion' else [])
+
+
+@router.get('/docente/vista-previa/{fase}')
+async def vista_previa(fase: str, _u: Docente, db: DB):
+    """Inspección docente incluso con la evaluación cerrada; no crea entregas."""
+    if fase not in ('pre', 'post'):
+        raise HTTPException(422, 'Selecciona pre o post.')
+    cfg = await configuracion(db)
+    return dict(fase=fase, version=VERSION, vista_previa=True,
+                abierto_estudiantes=cfg[fase + '_abierto'],
+                preguntas=preguntas(fase, cfg['preguntas_activas']))
 
 
 @router.post('/iniciar')

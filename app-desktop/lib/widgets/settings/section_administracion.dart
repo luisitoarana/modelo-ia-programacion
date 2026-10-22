@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../providers.dart';
 import '../../services/dialogos_nativos.dart';
 import 'admin_exports.dart';
+import '../estudio_docente.dart';
 
 /// Bandeja docente: los textos se revisan por su contenido, nunca por longitud.
 class AdministracionSection extends StatefulWidget {
@@ -434,6 +435,11 @@ class _AdministracionSectionState extends State<AdministracionSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        TextButton.icon(
+          onPressed: () => abrirEstudioDocente(context),
+          icon: const Icon(Icons.science_outlined),
+          label: const Text('Pretest, postest y vista previa docente'),
+        ),
         Wrap(
           spacing: 8,
           runSpacing: 8,
