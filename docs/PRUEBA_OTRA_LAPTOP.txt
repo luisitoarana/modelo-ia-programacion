@@ -1,0 +1,32 @@
+PYTHONIA - PRUEBA EN OTRA LAPTOP WINDOWS X64
+
+1. Copie Instalador_PythonIA_1.0.0.exe al pendrive y luego a la otra laptop.
+2. Ejecute el instalador. Instala la aplicacion para su usuario, sin herramientas
+   de desarrollo. El instalador de prueba no esta firmado digitalmente.
+3. El servidor previsto es https://api-pythonia.aranadev.com/api/v1
+   Esa direccion SOLO funcionara cuando el docente publique e inicie el tunel.
+   Puede cambiarla en Configuracion > Avanzado > Conexion al backend.
+4. Registre un estudiante distinto para cada participante. No utilice la cuenta
+   administradora privada en equipos compartidos. El docente entra en su laptop.
+5. Para ejecutar programas con entrada de teclado en el editor se necesita Python
+   3.11 o superior en la laptop del estudiante, disponible como python o py.
+   No se requiere Flutter, Visual Studio, Docker ni descargar el modelo.
+6. En la laptop servidor: iniciar_backend.bat (Normal o Docker), y luego
+   backend\iniciar_tunel.bat. Mantenga la laptop encendida, conectada a Internet
+   y sin suspension. El modelo permanece en la laptop servidor.
+
+COMPROBACION
+- Conecte la laptop estudiante a otra red (por ejemplo datos del celular).
+- Abra https://api-pythonia.aranadev.com/health y compruebe status: ok.
+- Registre e inicie sesion con un estudiante de prueba.
+- Desde Administracion asigne grupo y fase; compruebe pretest, practica y postest.
+- Envie una respuesta; revise desde la cuenta docente que pertenece al estudiante
+  correcto. Pruebe generar, corregir y ejecutar un programa con input().
+- Compruebe que el estudiante no accede a Administracion ni a otro participante.
+- Reinicie cliente y backend y compruebe que las respuestas siguen guardadas.
+
+IMPORTANTE
+Normal usa la base local configurada; Docker usa PostgreSQL y un volumen propio.
+Son bases diferentes. Para una prueba completa elija un modo y mantengalo.
+El instalador no contiene usuarios, contrasenas, base de datos ni pesos del modelo.
+No se ha comprobado esta prueba entre dos redes hasta realizar los pasos anteriores.

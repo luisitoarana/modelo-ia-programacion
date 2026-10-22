@@ -259,7 +259,7 @@ Puedes pedir a **ChatGPT con Codex**:
 
 Los lanzadores locales escuchan en la propia computadora. Docker ejecuta API/web con usuarios sin privilegios, mantiene PostgreSQL privado y no monta todo el repositorio en el explorador. El `.env` y los archivos de usuarios no se suben a Git ni al contexto de construcción.
 
-Publicar el repositorio no publica el servidor. El acceso de estudiantes desde otras computadoras, HTTPS, DNS y el túnel del servidor se configuran en una fase posterior. Para ese despliegue revisa [infraestructura](docs/INFRAESTRUCTURA.md), define orígenes CORS exactos, contraseñas propias, respaldos, migraciones y aislamiento de ejecución. El ejecutor educativo no equivale a una frontera de seguridad para código hostil; no expongas un entorno de desarrollo a Internet.
+Publicar el repositorio no publica el servidor. Para probar esta laptop como servidor con el subdominio `api-pythonia.aranadev.com`, sigue la [guía de Cloudflare e instalador para otra laptop](docs/SERVIDOR_CLOUDFLARE.md). Incluye la autorización del nuevo túnel, los modos Normal/Docker, la compilación del instalador al escritorio y la prueba entre dos redes. La publicación requiere completar esos pasos; no se activa por descargar el repositorio. El ejecutor educativo no equivale a una frontera de seguridad para código hostil; la guía distingue la prueba controlada del despliegue abierto permanente.
 
 No se promete ausencia absoluta de fallos o vulnerabilidades. La [validación de esta entrega](docs/VALIDACION_INSTALACION_2026-10-13.md) distingue las comprobaciones realizadas de las limitaciones pendientes.
 

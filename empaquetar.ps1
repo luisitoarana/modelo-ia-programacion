@@ -17,6 +17,7 @@ try {
     if (-not (Test-Path (Join-Path $origen 'app_desktop.exe'))) { throw 'No existe el ejecutable compilado.' }
     New-Item -ItemType Directory -Path $destino -Force | Out-Null
     Copy-Item -Path (Join-Path $origen '*') -Destination $destino -Recurse
+    @{version=$version; api_url=$ApiUrl; compilado_utc=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $destino 'entrega.json') -Encoding UTF8
     Copy-Item -LiteralPath (Join-Path $raiz 'docs\INSTALACION_JURADO.md') -Destination (Join-Path $raiz "release\$version\LEEME.md")
     Write-Host "[OK] Cliente compilado: $destino"
     Write-Host "[INFO] Backend configurado: $ApiUrl. El cliente no incluye servidor ni modelos."
