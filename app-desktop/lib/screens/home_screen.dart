@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -7,6 +8,8 @@ import '../theme.dart';
 import '../widgets/sidebar.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/code_view.dart';
+import '../widgets/evaluacion_estudio.dart';
+import '../widgets/estudio_docente.dart';
 import '../widgets/explicar_view.dart';
 import '../widgets/proyecto_view.dart';
 import '../widgets/terminal_view.dart';
@@ -45,12 +48,13 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   VistaPrincipal _vista = VistaPrincipal.chat;
   bool _sidebarColapsado = false;
+  Timer? _actualizarEstudio;
+  bool _asignacionConsultada = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ChatProvider>().cargarConversaciones();
       final usuarioId = context.read<AuthProvider>().usuario?.id;
       if (usuarioId != null) context.read<SettingsProvider>().activarPerfil(usuarioId);
       context.read<SettingsProvider>().setAsignacionEstudio(const {'asignado': false});
@@ -60,12 +64,27 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     // Escucha cambios de vista solicitados desde el command palette.
     eventoCambioVista.addListener(_onCambioVistaDesdePalette);
+    _actualizarEstudio = Timer.periodic(const Duration(seconds: 10), (_) => _cargarAsignacionEstudio());
   }
 
   Future<void> _cargarAsignacionEstudio() async {
     try {
       final datos = await context.read<AuthProvider>().api.obtenerAsignacionEstudio();
-      if (mounted) context.read<SettingsProvider>().setAsignacionEstudio(datos);
+      if (mounted) {
+        final anterior = context.read<SettingsProvider>().faseEstudio;
+        if ((!_asignacionConsultada || anterior != datos['fase']) &&
+            datos['fase'] != 'pre' && datos['fase'] != 'post' && datos['pendiente_asignacion'] != true) {
+          context.read<ChatProvider>().cargarConversaciones();
+        }
+        context.read<SettingsProvider>().setAsignacionEstudio(datos);
+        setState(() {
+          _asignacionConsultada = true;
+          if (anterior != datos['fase']) {
+            if (datos['fase'] == 'pre') _vista = VistaPrincipal.explicar;
+            if (datos['fase'] == 'post') _vista = VistaPrincipal.code;
+          }
+        });
+      }
     } catch (_) {
       // Los ajustes locales siguen disponibles si el servidor no responde.
     }
@@ -73,6 +92,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _actualizarEstudio?.cancel();
     eventoCambioVista.removeListener(_onCambioVistaDesdePalette);
     super.dispose();
   }
@@ -199,7 +219,17 @@ class _HomeScreenState extends State<HomeScreen> {
                         onCambiarVista: (v) => setState(() => _vista = v),
                       ),
                       Expanded(
-                        child: IndexedStack(
+                        child: !_asignacionConsultada
+                          ? Center(child: TextButton(onPressed: _cargarAsignacionEstudio, child: const Text('Comprobar fase de estudio')))
+                          : context.watch<SettingsProvider>().pendienteAsignacion
+                          ? const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('El estudio está activo. Espera a que el docente asigne tu grupo y pretest; todavía no puedes utilizar la IA.')))
+                          : context.watch<SettingsProvider>().esBloqueadoPostTest
+                          ? EvaluacionEstudio(key: ValueKey(context.watch<SettingsProvider>().faseEstudio))
+                          : Column(children: [
+                            if (context.watch<SettingsProvider>().faseEstudio == 'intervencion') const TareasIntervencion(),
+                            if (context.watch<AuthProvider>().usuario?.esInvestigador == true)
+                              TextButton.icon(onPressed: () => abrirEstudioDocente(context), icon: const Icon(Icons.science_outlined), label: const Text('Pretest, postest y revisión docente')),
+                            Expanded(child: IndexedStack(
                           index: _vista.index,
                           children: const [
                             ChatView(),
@@ -208,7 +238,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             ProyectoView(),
                             TerminalView(),
                           ],
-                        ),
+                        )),
+                          ]),
                       ),
                     ],
                   ),

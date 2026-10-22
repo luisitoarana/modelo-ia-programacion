@@ -1,6 +1,7 @@
 """Routers FastAPI agrupados por dominio."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.core.study_access import proteger_estudio
 
 from app.routes import (
     admin,
@@ -21,14 +22,16 @@ from app.routes import (
     proyecto,
     rag,
     research,
+    estudio,
 )
 
-api_router = APIRouter()
+api_router = APIRouter(dependencies=[Depends(proteger_estudio)])
 api_router.include_router(auth.router, prefix="/auth", tags=["Autenticación"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Administración"])
 api_router.include_router(chat.router, prefix="/chat", tags=["Chat"])
 api_router.include_router(curriculo.router, prefix="/curriculo", tags=["Currículo y Aprendizaje"])
 api_router.include_router(aprendizaje.router, prefix="/aprendizaje", tags=["Práctica Guiada"])
+api_router.include_router(estudio.router, prefix="/estudio", tags=["Pretest y postest"])
 api_router.include_router(ai_orchestrator.router, prefix="/ai", tags=["IA"])
 api_router.include_router(dataset.router, prefix="/dataset", tags=["Dataset"])
 api_router.include_router(knowledge.router, prefix="/knowledge", tags=["Conocimiento"])

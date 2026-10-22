@@ -331,6 +331,26 @@ class ApiClient {
     return data as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> estudioActual() async =>
+      (await _get('/estudio/actual')) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> iniciarEvaluacion() async =>
+      (await _post('/estudio/iniciar', {})) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> guardarEvaluacion(String id, Map<String, dynamic> respuestas, int revision, {bool finalizar = false}) async =>
+      (await _put('/estudio/entregas/$id', {'respuestas': respuestas, 'revision': revision, 'finalizar': finalizar})) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> configuracionEstudio() async =>
+      (await _get('/estudio/configuracion')) as Map<String, dynamic>;
+  Future<void> configurarEstudio(Map<String, dynamic> datos) async {
+    await _put('/estudio/configuracion', datos);
+  }
+  Future<Map<String, dynamic>> resumenEstudio() async =>
+      (await _get('/estudio/docente/resumen')) as Map<String, dynamic>;
+  Future<void> autorizarDocente(String id) async {
+    await _put('/estudio/docente/autorizar/$id', {});
+  }
+  Future<void> revisarEvaluacion(String id, String pregunta, Map<String, dynamic> rubrica) async {
+    await _put('/estudio/docente/entregas/$id/preguntas/$pregunta', rubrica);
+  }
+
   Future<Map<String, dynamic>> resumenAdmin() async =>
       (await _get('/admin/resumen')) as Map<String, dynamic>;
 

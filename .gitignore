@@ -89,3 +89,9 @@ scratch_check_cuda.py
 docs/evidencias/
 backend/.runtime/
 frontend/.runtime/
+
+# Exportaciones docentes: respuestas y datos de participantes
+pre_post_*.csv
+pre_post_*.json
+intentos_docentes_*.csv
+intentos_docentes_*.json

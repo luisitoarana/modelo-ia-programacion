@@ -448,7 +448,7 @@ $codigo
   Future<void> _explicar() async {
     final settings = context.read<SettingsProvider>();
     if (settings.esBloqueadoPostTest) return;
-    if (settings.esConAcompanamiento &&
+    if (settings.esConAcompanamiento && settings.practicaGuiada &&
         (!_intentoGuardado || _codigoGuardado != _codigoCtrl.text.trim())) {
       setState(() => _tabResultado = 3);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1026,9 +1026,9 @@ $codigo
   ) {
     final settings = context.watch<SettingsProvider>();
     final mostrarPractica =
-        _tabResultado == 3 ||
+        (_tabResultado == 3 && settings.practicaGuiada) ||
         settings.esBloqueadoPostTest ||
-        settings.esConAcompanamiento &&
+        settings.esConAcompanamiento && settings.practicaGuiada &&
             (!_intentoGuardado || _codigoGuardado != _codigoCtrl.text.trim());
     return Container(
       decoration: BoxDecoration(
@@ -1186,7 +1186,7 @@ $codigo
     final settings = context.read<SettingsProvider>();
     if (index != 3 &&
         (settings.esBloqueadoPostTest ||
-            settings.esConAcompanamiento &&
+            settings.esConAcompanamiento && settings.practicaGuiada &&
                 (!_intentoGuardado ||
                     _codigoGuardado != _codigoCtrl.text.trim()))) {
       setState(() => _tabResultado = 3);
@@ -1201,6 +1201,9 @@ $codigo
   }
 
   Widget _practicaGuiada(AppPalette p, SettingsProvider settings) {
+    if (!settings.practicaGuiada) {
+      return const Center(child: Text("La práctica guiada está desactivada por el docente. Puedes pedir directamente una explicación del código."));
+    }
     final pistas =
         _leccionActiva?.pistas ??
         const <String>[

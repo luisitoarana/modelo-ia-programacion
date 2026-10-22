@@ -16,6 +16,8 @@ from app.database import get_db
 from app.models.intento_aprendizaje import AsignacionEstudio, IntentoAprendizaje, RevisionIntento
 from app.models.usuario import RolUsuario, Usuario
 from app.services.curriculum_service import CurriculumService
+from app.services.estudio_service import configuracion
+from app.models.estudio import EntregaEstudio
 
 router = APIRouter()
 
@@ -69,13 +71,16 @@ async def obtener_asignacion(
     sesion: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, object]:
     asignacion = await sesion.get(AsignacionEstudio, usuario.id)
+    cfg = await configuracion(sesion)
     if asignacion is None:
-        return {"asignado": False, "condicion": None, "fase": None, "modo_efectivo": None}
+        return {"asignado": False, "condicion": None, "fase": None, "modo_efectivo": None,
+                "pendiente_asignacion": cfg['estudio_activo'] and usuario.rol == RolUsuario.ESTUDIANTE}
     return {
         "asignado": True,
         "condicion": asignacion.condicion,
         "fase": asignacion.fase,
         "modo_efectivo": modo_asignado(asignacion),
+        "practica_guiada": cfg["practica_guiada"],
     }
 
 
@@ -90,7 +95,18 @@ async def asignar_condicion(
 ) -> dict[str, object]:
     if await sesion.get(Usuario, usuario_id) is None:
         raise HTTPException(status_code=404, detail="Participante no encontrado.")
+    entregas = list((await sesion.scalars(select(EntregaEstudio).where(EntregaEstudio.usuario_id == usuario_id))).all())
+    cfg = await configuracion(sesion)
+    if cfg['estudio_activo'] and datos.fase in ('intervencion', 'post') and not any(e.fase == 'pre' and e.estado == 'enviado' for e in entregas):
+        raise HTTPException(409, 'Con el estudio activo, primero se necesita un pretest enviado.')
+    if entregas and any(e.condicion != datos.condicion for e in entregas):
+        raise HTTPException(409, 'La condición queda fijada al iniciar el pretest. No cambies de grupo a mitad del estudio.')
+    if datos.fase in ('intervencion', 'post') and any(e.fase == 'pre' and e.estado != 'enviado' for e in entregas):
+        raise HTTPException(409, 'Primero se debe enviar el pretest, aun con respuestas incompletas.')
     asignacion = await sesion.get(AsignacionEstudio, usuario_id)
+    orden = {'pre': 0, 'intervencion': 1, 'post': 2}
+    if entregas and asignacion and orden[datos.fase] < orden[asignacion.fase]:
+        raise HTTPException(409, 'Las fases del estudio solo avanzan; para otro pilotaje utiliza una cuenta nueva.')
     if asignacion is None:
         asignacion = AsignacionEstudio(usuario_id=usuario_id)
         sesion.add(asignacion)
@@ -112,6 +128,10 @@ async def registrar_intento(
     asignacion = await sesion.get(AsignacionEstudio, usuario.id)
     campos = datos.model_dump()
     if asignacion is not None:
+        if asignacion.fase in ('pre', 'post'):
+            raise HTTPException(409, 'Los pre/post se entregan en el instrumento de evaluación, no como una práctica.')
+        if asignacion.condicion == 'sin_acompanamiento':
+            raise HTTPException(403, 'El grupo de generación directa no utiliza práctica guiada.')
         campos["modo"] = modo_asignado(asignacion)
         campos["fase"] = asignacion.fase
     intento = IntentoAprendizaje(usuario_id=usuario.id, **campos)

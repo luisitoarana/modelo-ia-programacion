@@ -561,6 +561,16 @@ def generar_respuesta(
         else:
             sistema = PROMPT_SISTEMA_GENERAL
 
+    if modo_acompanamiento != "sin_acompanamiento":
+        sistema += (
+            "\nCONTROL DE COHERENCIA OBLIGATORIO: explica exclusivamente el código mostrado. "
+            "Un literal numérico entero sin comillas, como 19, es int; solo es str si está entre comillas. "
+            "No agrupes variables de tipos distintos como si todas fueran cadenas. "
+            "Si el programa no llama a input(), no hay entradas del usuario: no preguntes qué ocurre si el usuario ingresa datos. "
+            "La pregunta final debe nombrar una variable o función que realmente aparezca en el código y proponer un cambio concreto de su valor o argumento. "
+            "No incluyas preguntas genéricas de negativos, listas vacías o casos límite que no correspondan a ese programa."
+        )
+
     prompt_chat = (
         f"<|im_start|>system\n{sistema}<|im_end|>\n"
         f"<|im_start|>user\n{mensaje_seguro}<|im_end|>\n"

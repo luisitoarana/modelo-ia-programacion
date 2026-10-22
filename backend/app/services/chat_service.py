@@ -284,6 +284,8 @@ class ChatService:
             # Ambas condiciones deben usar el mismo motor para que la
             # comparación mida el andamiaje, no un cambio de proveedor.
             proveedor_forzado = "propio"
+            imagenes = None
+            habilitar_busqueda_web = False
         historial = await self._historial_reciente(conv.id)
         texto_asistente, meta = await self._generar_respuesta(
             texto_usuario,
@@ -296,6 +298,11 @@ class ChatService:
             nivel_modulo=nivel_modulo,
         )
         if asignacion is not None:
+            fase_inicial = asignacion.fase
+            await self.sesion.refresh(asignacion)
+            if asignacion.fase != fase_inicial:
+                texto_asistente = 'El docente cambió la fase durante la consulta. Actualiza la aplicación.'
+                meta = {'origen': 'cambio_fase_estudio', 'tokens': 0, 'latencia': 0.0}
             meta["condicion_estudio"] = asignacion.condicion
             meta["fase_estudio"] = asignacion.fase
             meta["modo_efectivo"] = modo_acompanamiento
@@ -454,7 +461,37 @@ class ChatService:
                         temperatura=0.25,
                     )
                     if r_local and r_local.texto:
-                        return r_local.texto, {
+                        respuesta_local = r_local.texto
+                        andamiaje_verificado = False
+                        if modo_acomp == 'con_acompanamiento' and r_local.codigo:
+                            from app.services.andamiaje_verificado import completar
+                            try:
+                                respuesta_local = completar(respuesta_local, r_local.codigo)
+                                andamiaje_verificado = True
+                            except (SyntaxError, ValueError):
+                                # No presentar una comprobación estática de código inválido.
+                                pass
+                        if modo_acomp == 'sin_acompanamiento':
+                            import ast
+                            codigo = r_local.codigo
+                            if not codigo:
+                                candidatos = re.findall(r'```(?:python|py)?\s*\n(.*?)```', r_local.texto, re.S)
+                                codigo = candidatos[0] if candidatos else r_local.texto
+                            try:
+                                arbol = ast.parse(codigo)
+                            except (SyntaxError, ValueError):
+                                return 'No se obtuvo código Python válido. Vuelve a solicitar la generación.', {
+                                    'origen': 'error_generacion_directa', 'tokens': r_local.tokens_generados, 'latencia': r_local.latencia_segundos,
+                                }
+                            # La condición directa no recibe explicaciones en comentarios/docstrings.
+                            for nodo in ast.walk(arbol):
+                                if isinstance(nodo, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                                    if nodo.body and isinstance(nodo.body[0], ast.Expr) and isinstance(nodo.body[0].value, ast.Constant) and isinstance(nodo.body[0].value.value, str):
+                                        nodo.body.pop(0)
+                                        if not nodo.body:
+                                            nodo.body.append(ast.Pass())
+                            respuesta_local = '```python\n' + ast.unparse(ast.fix_missing_locations(arbol)).strip() + '\n```'
+                        return respuesta_local, {
                             "origen": "motor_pedagogico_local",
                             "proveedor": "propio",
                             "motor": "Motor Neuronal Pedagógico Local",
@@ -464,6 +501,7 @@ class ChatService:
                             "device": "gpu" if getattr(motor_pedagogico_service, "es_gpu", lambda: True)() else "cpu",
                             "contexto_recortado": r_local.contexto_recortado,
                             "respuesta_incompleta": r_local.respuesta_incompleta,
+                            "pregunta_origen": "ast_del_codigo" if andamiaje_verificado else None,
                         }
             except motor_pedagogico_service.MotorLocalError as exc:
                 return str(exc), {"origen": "error_motor_local", "proveedor": "propio", "tokens": 0, "latencia": 0.0}

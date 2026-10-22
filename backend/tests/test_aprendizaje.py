@@ -139,8 +139,16 @@ async def test_intento_persiste_respuestas_y_ayudas_sin_nota_automatica():
             ))
             await sesion.commit()
             datos.modo = "con_acompanamiento"
+            from fastapi import HTTPException
+            with pytest.raises(HTTPException) as prohibida:
+                await registrar_intento(datos, usuario, sesion)
+            assert prohibida.value.status_code == 403
+            asignacion = await sesion.get(AsignacionEstudio, usuario.id)
+            asignacion.condicion = 'con_acompanamiento'
+            await sesion.commit()
+            datos.modo = 'sin_acompanamiento'
             control = await registrar_intento(datos, usuario, sesion)
-            assert control.modo == "sin_acompanamiento"
+            assert control.modo == "con_acompanamiento"
             assert control.fase == "intervencion"
             revision = await revisar_intentos(usuario, sesion, usuario_id=usuario.id, fase="intervencion")
             assert len(revision) == 1 and revision[0]["id"] == control.id
@@ -162,7 +170,7 @@ async def test_intento_persiste_respuestas_y_ayudas_sin_nota_automatica():
             usuarios = await listar_usuarios(sesion, docente)
             assert any(u["email"] == usuario.email and u["fase"] == "intervencion"
                        for u in usuarios)
-            assert (await obtener_asignacion(usuario, sesion))["modo_efectivo"] == "sin_acompanamiento"
+            assert (await obtener_asignacion(usuario, sesion))["modo_efectivo"] == "con_acompanamiento"
             asignacion = await sesion.get(AsignacionEstudio, usuario.id)
             asignacion.fase = "post"
             servicio = ChatService(sesion)

@@ -13,6 +13,7 @@ from app.models.dataset import DatasetEducativo
 from app.models.evaluacion import Evaluacion
 from app.models.feedback import Feedback
 from app.models.usuario import Usuario
+from app.models.estudio import ConfiguracionEstudio, EntregaEstudio
 
 __all__ = [
     "Actividad",

@@ -165,6 +165,14 @@ Inicia sesión con la cuenta administradora y abre **Administración** en el men
 
 La cuenta que entra no representa a todos los estudiantes: cada uno utiliza su usuario. Antes de recoger datos, define el grupo, el consentimiento, la rúbrica y el pre/post en el [protocolo experimental](research/PROTOCOLO_PRE_POST_ANDAMIAJE.md). No publiques respuestas, correos ni exportaciones de estudiantes en GitHub.
 
+### Pretest y postest por estudiante
+
+Abre **Pretest, postest y revisión docente** desde la aplicación. Puedes activar el estudio, abrir/cerrar cada test, seleccionar cinco o seis preguntas y asignar grupo/fase. Se proponen seis pares, dos por módulo: **pre y post sin IA para ambos grupos**; durante la intervención un grupo recibe generación directa y el otro andamiaje explicativo.
+
+Las respuestas, incluso incorrectas o vacías, se entregan al servidor. El docente revisa con rúbrica, exporta CSV/JSON y consulta la comparación individual cuando ambas fases estén calificadas. Las preguntas de un instrumento iniciado no cambian. La cuenta pública sirve para demostraciones; cada participante real necesita una cuenta propia.
+
+El banco es un **piloto pendiente de aprobación del profesor**. Consulta el [protocolo y las seis parejas de tareas](research/PROTOCOLO_PRE_POST_ANDAMIAJE.md) y la [validación del flujo](docs/VALIDACION_ESTUDIO_2026-10-22.md). No se atribuye un efecto educativo a las pruebas del software.
+
 ### Editor y explicador
 
 El editor mantiene una conversación y envía el archivo actual. Las solicitudes de modificación y las confirmaciones de una propuesta pueden aplicar cambios a la pestaña original; el código Python se valida sintácticamente antes de sustituirlo. Si cambias el archivo mientras llega la respuesta, se conserva tu edición. Revisa el diff y prueba el resultado: sintaxis válida no demuestra corrección funcional.

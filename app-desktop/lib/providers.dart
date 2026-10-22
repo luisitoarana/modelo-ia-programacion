@@ -35,6 +35,10 @@ class SettingsProvider extends ChangeNotifier {
   bool get esConAcompanamiento => modoAcompanamiento == 'con_acompanamiento';
   bool get esSinAcompanamiento => modoAcompanamiento == 'sin_acompanamiento';
   bool get esBloqueadoPostTest => modoAcompanamiento == 'bloqueado_post_test';
+  bool _practicaGuiada = true;
+  bool get practicaGuiada => _practicaGuiada;
+  bool _pendienteAsignacion = false;
+  bool get pendienteAsignacion => _pendienteAsignacion;
 
   String _nivelModulo = 'principiante';
   String? _usuarioActivoId;
@@ -90,6 +94,8 @@ class SettingsProvider extends ChangeNotifier {
         ? datos['modo_efectivo'] as String?
         : null;
     _faseEstudio = datos['fase'] as String?;
+    _practicaGuiada = datos['practica_guiada'] != false;
+    _pendienteAsignacion = datos['pendiente_asignacion'] == true;
     notifyListeners();
   }
 

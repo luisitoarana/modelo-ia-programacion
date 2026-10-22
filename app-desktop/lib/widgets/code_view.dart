@@ -755,6 +755,7 @@ class _CodeViewState extends State<CodeView> {
   }
 
   void _mostrarPistasCurriculares(LeccionCurricular leccion) {
+    if (!context.read<SettingsProvider>().esConAcompanamiento) return;
     final p = AppPalette.of(context);
     showDialog(
       context: context,
@@ -841,6 +842,7 @@ class _CodeViewState extends State<CodeView> {
   }
 
   void _mostrarDialogoRetosCurriculares(BuildContext context, AppPalette p, SettingsProvider settings) {
+    if (!settings.esConAcompanamiento) return;
     String nivelSeleccionado = settings.nivelModulo;
 
     showDialog(
@@ -2507,7 +2509,7 @@ class _CodeViewState extends State<CodeView> {
               Icons.psychology_outlined,
               'Explicar',
               const Color(0xFF6366F1),
-              (t != null && t.contenido.trim().isNotEmpty) || _carpetaRaiz != null,
+              settings.esConAcompanamiento && ((t != null && t.contenido.trim().isNotEmpty) || _carpetaRaiz != null),
               (t != null && (t.lenguaje == 'markdown' || t.nombre.toLowerCase().endsWith('.md') || t.nombre.toLowerCase().endsWith('.txt')))
                   ? 'Analizar y resumir este documento o especificación técnica'
                   : 'Explicar el código o sistema paso a paso con andamiaje pedagógico',
@@ -2533,7 +2535,7 @@ class _CodeViewState extends State<CodeView> {
               Icons.bug_report_outlined,
               'Detectar Errores',
               const Color(0xFFEF4444),
-              (t != null && t.contenido.trim().isNotEmpty) || _carpetaRaiz != null,
+              settings.esConAcompanamiento && ((t != null && t.contenido.trim().isNotEmpty) || _carpetaRaiz != null),
               'Auditar posibles errores, excepciones y casos límite',
               () {
                 _consultarIa(
@@ -2548,7 +2550,7 @@ class _CodeViewState extends State<CodeView> {
               Icons.school_outlined,
               'Retos Curriculares',
               const Color(0xFF38BDF8),
-              true,
+              settings.esConAcompanamiento,
               'Explorar retos prácticos del currículo (${CurriculumCatalog.nombreNivel(settings.nivelModulo)})',
               () => _mostrarDialogoRetosCurriculares(context, p, settings),
             ),
@@ -3442,6 +3444,12 @@ class _CodeViewState extends State<CodeView> {
   }
 
   Widget _emptyStateIaLateral(AppPalette p, TabArchivo? t) {
+    if (context.watch<SettingsProvider>().esSinAcompanamiento) {
+      return Padding(padding: const EdgeInsets.all(16), child: Text(
+        'Generación directa de código. Describe el programa que necesitas; recibirás código Python. Puedes ejecutarlo en el editor. Las pistas, explicaciones y preguntas guiadas están desactivadas para esta condición.',
+        style: TextStyle(color: p.text, height: 1.5),
+      ));
+    }
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
