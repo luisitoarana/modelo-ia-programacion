@@ -1,8 +1,33 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import '../lib/widgets/code/code_helpers.dart';
+import '../lib/services/curriculum_catalog.dart';
 
 void main() {
+  test(
+    'las preguntas de Solo código cubren las once lecciones existentes sin soluciones',
+    () {
+      expect(
+        CurriculumCatalog.preguntasCodigo.keys.toSet(),
+        CurriculumCatalog.lecciones.map((l) => l.id).toSet(),
+      );
+      for (final leccion in CurriculumCatalog.lecciones) {
+        expect(leccion.preguntaCodigo, isNotEmpty);
+        expect(leccion.preguntaCodigo, isNot(contains('```')));
+        expect(esSolicitudNueva(leccion.preguntaCodigo), isTrue);
+      }
+    },
+  );
+  test('distingue peticiones nuevas de modificaciones del archivo abierto', () {
+    expect(esSolicitudNueva('Imprime el nombre Luis'), isTrue);
+    expect(
+      esSolicitudNueva('Hazme una calculadora con entrada de teclado'),
+      isTrue,
+    );
+    expect(esSolicitudNueva('Corrige este NameError'), isFalse);
+    expect(esSolicitudNueva('Genera la corrección de este archivo'), isFalse);
+    expect(esSolicitudNueva('Crea una función en este archivo'), isFalse);
+  });
   test('extrae varios archivos de una propuesta y conserva su contenido', () {
     final archivos = extraerArchivosPropuestos(
       'ARCHIVO: backend/main.py\n\n```python\nprint("hola")\n```\n'

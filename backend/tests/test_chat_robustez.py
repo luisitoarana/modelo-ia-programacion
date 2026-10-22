@@ -21,13 +21,8 @@ def test_importacion_inexistente_se_detecta_sin_ejecutar_el_programa():
 
 
 def test_no_ignora_una_entrada_que_se_pidio_mostrar():
-    import re
-    from app.routes.herramientas import _exec_sandbox
-    respuesta = _codigo_directo('```python\nnombre=input("Nombre: ")\nprint(22)\n```', None, 'Pide el nombre y muestra el nombre y la edad.')
-    codigo = re.search(r'```python\n(.*?)```', respuesta, re.S).group(1)
-    resultado = _exec_sandbox(codigo, stdin_texto='Lucía\n', timeout_segundos=3)
-    assert resultado.exit_code == 0
-    assert 'Lucía' in resultado.stdout and '22' in resultado.stdout
+    with pytest.raises(ValueError, match='Se pidió mostrar nombre'):
+        _codigo_directo('```python\nnombre=input("Nombre: ")\nprint(22)\n```', None, 'Pide el nombre y muestra el nombre y la edad.')
 
 
 @pytest.mark.asyncio
@@ -76,7 +71,51 @@ async def test_generacion_directa_repara_sintaxis_una_vez_sin_andamiaje(monkeypa
         assert meta['tokens'] == 20
     else:
         assert meta['origen']=='error_generacion_directa'
-        assert 'archivo se conserva' in respuesta
+        assert 'archivo se conserva' in respuesta.lower()
+
+
+def test_rechaza_nota_indefinida_y_respeta_ambitos_validos():
+    with pytest.raises(ValueError, match="undefined name 'nota'"):
+        _codigo_directo('```python\nedad=25\nif edad>=18 and nota>=7:\n    print("Aprobado")\n```', None)
+    correcto = 'def doble(n):\n    return n*2\nvalores=[doble(x) for x in range(3)]\nprint(valores)'
+    assert 'def doble(n)' in _codigo_directo('```python\n'+correcto+'\n```', None)
+
+
+def test_nameerror_no_se_oculta_con_una_nota_inventada():
+    with pytest.raises(ValueError, match='No se conoce el dato real nota'):
+        _codigo_directo('```python\nnota=7.5\nprint(nota)\n```', None, "Corrige NameError: name 'nota' is not defined")
+    assert 'nota = 8' in _codigo_directo('```python\nnota=8\nprint(nota)\n```', None, "Corrige NameError: name 'nota' is not defined. Usa nota = 8.")
+
+
+@pytest.mark.asyncio
+async def test_nueva_peticion_descarta_codigo_e_historial_de_otra_tarea(monkeypatch):
+    monkeypatch.setattr(motor, 'esta_disponible', lambda: True)
+    consulta=Mock(return_value=motor.ResultadoMotorLocal('```python\nprint("Luis")\n```', 'print("Luis")', 10, .1, 100))
+    monkeypatch.setattr(motor, 'generar_respuesta', consulta)
+    pedido='[PETICION_USUARIO]\nImprime el nombre Luis.\nNo hagas sumas.\n[/PETICION_USUARIO]\n[EDITOR_OPERACION:crear]'
+    historial=[Mensaje(rol=RolMensaje.USUARIO,contenido='Crea una suma'),
+               Mensaje(rol=RolMensaje.ASISTENTE,contenido='```python\nSUMA_ANTERIOR=100+200\nprint(SUMA_ANTERIOR)\n```'),
+               Mensaje(rol=RolMensaje.USUARIO,contenido=pedido)]
+    respuesta,_=await ChatService(None)._generar_respuesta(pedido,historial,proveedor_forzado='propio',modo_acompanamiento='sin_acompanamiento')
+    assert 'SUMA_ANTERIOR' not in consulta.call_args.args[0]
+    assert 'Crea una suma' not in consulta.call_args.args[0]
+    assert 'Imprime el nombre Luis.\nNo hagas sumas.' in consulta.call_args.args[0]
+    assert 'Luis' in respuesta
+
+
+@pytest.mark.asyncio
+async def test_correccion_de_nota_repetida_se_rechaza_en_vez_de_aceptar_mismo_error(monkeypatch):
+    monkeypatch.setattr(motor, 'esta_disponible', lambda: True)
+    codigo='edad=25\nif edad>=18 and nota>=7:\n    print("Aprobado")'
+    consulta=Mock(return_value=motor.ResultadoMotorLocal('```python\n'+codigo+'\n```', codigo, 10,.1,100))
+    monkeypatch.setattr(motor,'generar_respuesta',consulta)
+    texto,meta=await ChatService(None)._generar_respuesta(
+        'Petición actual del estudiante: Corrige NameError nota\nCódigo actual en el editor:\n```python\n'+codigo+'\n```',
+        [],proveedor_forzado='propio',modo_acompanamiento='sin_acompanamiento')
+    assert consulta.call_count==2
+    assert "undefined name 'nota'" in consulta.call_args.args[0]
+    assert meta['origen']=='error_generacion_directa'
+    assert '```' not in texto and 'nota' in texto
 
 
 def test_archivo_mayor_de_8000_caracteres_se_acepta_completo():

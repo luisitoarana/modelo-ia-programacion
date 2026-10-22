@@ -872,7 +872,7 @@ class _CodeViewState extends State<CodeView> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Retos Curriculares — El Libro de Python',
+                        settings.esSinAcompanamiento ? 'Preguntas de los módulos' : 'Retos Curriculares — El Libro de Python',
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: p.text),
                       ),
                       Text(
@@ -935,7 +935,7 @@ class _CodeViewState extends State<CodeView> {
                                       borderRadius: BorderRadius.circular(4),
                                     ),
                                     child: Text(
-                                      lec.id,
+                                      settings.esSinAcompanamiento ? lec.numero : lec.id,
                                       style: TextStyle(
                                         fontSize: 11,
                                         fontWeight: FontWeight.bold,
@@ -968,7 +968,7 @@ class _CodeViewState extends State<CodeView> {
                                       ),
                                     ),
                                   if (settings.esSinAcompanamiento)
-                                    TextButton(onPressed: () => Clipboard.setData(ClipboardData(text: lec.consignaDirecta)), child: const Text('Copiar consigna')),
+                                    TextButton(onPressed: () => Clipboard.setData(ClipboardData(text: lec.preguntaCodigo)), child: const Text('Copiar pregunta')),
                                   FilledButton.tonalIcon(
                                     onPressed: () {
                                       Navigator.pop(ctx);
@@ -976,7 +976,7 @@ class _CodeViewState extends State<CodeView> {
                                         settings.setNivelModulo(nivelSeleccionado);
                                       }
                                       if (settings.esSinAcompanamiento) {
-                                        _consultarIa('Crea un programa Python completo para este reto: ${lec.titulo}.\n${lec.consignaDirecta}');
+                                        _consultarIa(lec.preguntaCodigo);
                                       } else {
                                         _cargarRetoCurricular(lec, p);
                                       }
@@ -992,7 +992,7 @@ class _CodeViewState extends State<CodeView> {
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                settings.esSinAcompanamiento ? lec.consignaDirecta : lec.descripcionPedagogica,
+                                settings.esSinAcompanamiento ? lec.preguntaCodigo : lec.descripcionPedagogica,
                                 style: TextStyle(fontSize: 11.5, color: p.muted, height: 1.3),
                               ),
                               const SizedBox(height: 6),
@@ -1187,12 +1187,18 @@ class _CodeViewState extends State<CodeView> {
       buffer.writeln();
     }
 
-    buffer.writeln('Petición actual del estudiante: $textoLimpio');
+    buffer.writeln('[PETICION_USUARIO]');
+    buffer.writeln(textoLimpio);
+    final nombreUsuario = context.read<AuthProvider>().usuario?.nombre;
+    if (nombreUsuario != null && RegExp(r'\bmi nombre\b', caseSensitive: false).hasMatch(textoLimpio)) {
+      buffer.writeln('Nombre del solicitante para esta petición: ${jsonEncode(nombreUsuario)}. Si se pide input, conserva la entrada por teclado.');
+    }
+    buffer.writeln('[/PETICION_USUARIO]');
     if (_iaCambioPendiente && esConfirmacionDeCambio(textoLimpio)) {
       buffer.writeln('Aplica la corrección que propusiste en el turno anterior al archivo actual. Devuelve el archivo completo.');
     }
-    final esNuevaCreacion = !pideCambio && RegExp(r'\b(crea|crear|haz|hacer|desarrolla|desarrollar|construye|construir|genera|generar|nueva?|nuevo)\b', caseSensitive: false).hasMatch(textoLimpio) &&
-        !RegExp(r'\b(en este archivo|a este archivo|en esta funci[oó]n|agrega|a[ñn]ade|este c[oó]digo|el c[oó]digo actual)\b', caseSensitive: false).hasMatch(textoLimpio);
+    final esNuevaCreacion = !pideCambio && esSolicitudNueva(textoLimpio);
+    buffer.writeln('[EDITOR_OPERACION:${esNuevaCreacion ? 'crear' : pideCambio ? 'corregir' : 'consulta'}]');
 
     if (t != null && !esNuevaCreacion) {
       buffer.writeln(
@@ -1236,7 +1242,7 @@ class _CodeViewState extends State<CodeView> {
       }
     }
 
-    if (t == null) {
+    if (t == null && !esNuevaCreacion) {
       for (final mensaje in _iaHistorial.reversed) {
         if (mensaje.esUsuario || mensaje.codigoExtraido == null) continue;
         final codigoPrevio = mensaje.codigoExtraido!.trim();
@@ -1291,6 +1297,16 @@ class _CodeViewState extends State<CodeView> {
         final codigoExtraido = archivoActualPropuesto
             ? archivosPropuestos.single.contenido
             : _extraerCodigoDeMarkdown(respuestaTexto);
+        Map<String, dynamic>? validacionPropuesta;
+        if (codigoExtraido != null && (archivosPropuestos.isEmpty || archivoActualPropuesto) &&
+            (t == null || esNuevaCreacion || t.lenguaje == 'python')) {
+          validacionPropuesta = await api.validarSintaxisPython(codigoExtraido);
+          if (!mounted) return;
+          if ((validacionPropuesta['valido_para_aplicar'] ?? validacionPropuesta['valido']) != true) {
+            _iaCambioPendiente = false;
+            throw ApiException('La propuesta no se aplicó: ${validacionPropuesta['mensaje'] ?? validacionPropuesta['errores'] ?? 'verificación Python fallida'}');
+          }
+        }
         setState(() {
           _iaCambioPendiente = codigoExtraido != null || RegExp(
             r'(?:¿|\?).*(?:corr[íi][jg]|correg|arregl|modific|aplic|actualiz)|(?:quieres|deseas|puedo).*(?:corr[íi][jg]|correg|arregl|modific|aplic|actualiz)',
@@ -1314,17 +1330,17 @@ class _CodeViewState extends State<CodeView> {
           if (esDiferente && contenidoAlEnviar!.length <= 180000 && contextoCompleto &&
               _tabs.contains(t) && t.contenido == contenidoAlEnviar) {
             final sintaxis = t.lenguaje == 'python'
-                ? await api.validarSintaxisPython(codigoExtraido)
+                ? validacionPropuesta!
                 : <String, dynamic>{'valido': true};
             if (!mounted) return;
-            if (sintaxis['valido'] == true) {
+            if ((sintaxis['valido_para_aplicar'] ?? sintaxis['valido']) == true) {
               if (_tabs.contains(t) && t.contenido == contenidoAlEnviar) {
                 _reemplazarTodoElArchivo(codigoExtraido, archivo: t);
                 _iaCambioPendiente = false;
               }
             } else {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                content: Text('La propuesta contiene un detalle sintáctico. Puedes revisarla con «Ver Diff» o en el chat.'),
+                content: Text('La propuesta no pasó la validación de Python y no se aplicó. Revisa los errores del chat.'),
                 duration: Duration(seconds: 3),
               ));
             }
@@ -1337,7 +1353,7 @@ class _CodeViewState extends State<CodeView> {
             nombreSugerido = 'calculadora.py';
           } else if (cLow.contains('tabla') || cLow.contains('multiplic')) {
             nombreSugerido = 'tablas_multiplicar.py';
-          } else if (cLow.contains('promedio') || cLow.contains('nota')) {
+          } else if (cLow.contains('promedio')) {
             nombreSugerido = 'calcula_promedio.py';
           } else if (cLow.contains('fibonacci')) {
             nombreSugerido = 'fibonacci.py';
@@ -1362,7 +1378,7 @@ class _CodeViewState extends State<CodeView> {
             ),
           );
         } else if (codigoExtraido != null && codigoExtraido.trim().isNotEmpty && t != null && t.contenido.trim().isEmpty) {
-          _reemplazarTodoElArchivo(codigoExtraido, archivo: t);
+          await _aplicarPropuestaIa(codigoExtraido, archivo: t);
         }
       }
     } catch (e) {
@@ -1562,6 +1578,25 @@ class _CodeViewState extends State<CodeView> {
     );
   }
 
+  Future<void> _aplicarPropuestaIa(String codigo, {TabArchivo? archivo}) async {
+    final destino = archivo ?? _tabActiva;
+    if (destino == null) return;
+    final anterior = destino.contenido;
+    try {
+      if (destino.lenguaje == 'python') {
+        final verificacion = await context.read<AuthProvider>().api.validarSintaxisPython(codigo);
+        if (!mounted) return;
+        if ((verificacion['valido_para_aplicar'] ?? verificacion['valido']) != true) {
+          throw ApiException(verificacion['mensaje']?.toString() ?? 'La propuesta no pasó la verificación Python.');
+        }
+      }
+      if (!mounted || !_tabs.contains(destino) || destino.contenido != anterior) return;
+      _reemplazarTodoElArchivo(codigo, archivo: destino);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Archivo conservado: $e')));
+    }
+  }
+
   void _reemplazarTodoElArchivo(String nuevoCodigo, {TabArchivo? archivo}) {
     final t = archivo ?? _tabActiva;
     if (t == null) return;
@@ -1618,7 +1653,7 @@ class _CodeViewState extends State<CodeView> {
     final cLow = codigo.toLowerCase();
     if (cLow.contains('tabla') || cLow.contains('multiplic')) {
       nombreSugerido = 'tablas_multiplicar.py';
-    } else if (cLow.contains('promedio') || cLow.contains('nota')) {
+    } else if (cLow.contains('promedio')) {
       nombreSugerido = 'calcula_promedio.py';
     } else if (cLow.contains('primo')) {
       nombreSugerido = 'numeros_primos.py';
@@ -1644,6 +1679,19 @@ class _CodeViewState extends State<CodeView> {
     final nombreFinal = nombreElegido.trim();
     final ext = nombreFinal.contains('.') ? nombreFinal.split('.').last : 'py';
     final lenguaje = lenguajeDeExtension(ext);
+
+    if (lenguaje == 'python') {
+      try {
+        final verificacion = await context.read<AuthProvider>().api.validarSintaxisPython(codigo);
+        if (!mounted) return;
+        if ((verificacion['valido_para_aplicar'] ?? verificacion['valido']) != true) {
+          throw ApiException(verificacion['mensaje']?.toString() ?? 'La propuesta no pasó la verificación Python.');
+        }
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se creó el archivo: $e')));
+        return;
+      }
+    }
 
     String? rutaFinal;
     if (_carpetaRaiz != null) {
@@ -2569,10 +2617,10 @@ class _CodeViewState extends State<CodeView> {
             _btnSec(
               p,
               Icons.school_outlined,
-              'Retos Curriculares',
+              settings.esSinAcompanamiento ? 'Preguntas de los módulos' : 'Retos Curriculares',
               const Color(0xFF38BDF8),
               !settings.esBloqueadoPostTest,
-              'Explorar retos prácticos del currículo (${CurriculumCatalog.nombreNivel(settings.nivelModulo)})',
+              settings.esSinAcompanamiento ? 'Preguntas de las lecciones del módulo; también puedes escribir tu propia petición en el chat' : 'Explorar retos prácticos del currículo (${CurriculumCatalog.nombreNivel(settings.nivelModulo)})',
               () => _mostrarDialogoRetosCurriculares(context, p, settings),
             ),
             if (t != null && t.contenido != t.original) ...[
@@ -3107,7 +3155,9 @@ class _CodeViewState extends State<CodeView> {
                       onTap: () {
                         final instruccion = esEof
                             ? 'Revisa el código actual conservando las llamadas input(). La entrada se recibe en la terminal; no la sustituyas por números inventados. Corrige únicamente los errores reales y devuelve el archivo completo.'
-                            : 'Corrige este error en el archivo actual y explica brevemente el cambio. Devuelve el código completo funcional:\n`$prob`';
+                            : context.read<SettingsProvider>().esSinAcompanamiento
+                              ? 'Corrige este error en el archivo actual. Devuelve únicamente el archivo Python completo corregido:\n`$prob`'
+                              : 'Corrige este error en el archivo actual y explica brevemente el cambio. Devuelve el código completo funcional:\n`$prob`';
                         _consultarIa(instruccion);
                       },
                       borderRadius: BorderRadius.circular(5),
@@ -3773,7 +3823,7 @@ class _CodeViewState extends State<CodeView> {
                     ),
                     icon: const Icon(Icons.check_circle_outline_rounded, size: 13),
                     label: const Text('Reemplazar archivo', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                    onPressed: () => _reemplazarTodoElArchivo(codigo),
+                    onPressed: () => _aplicarPropuestaIa(codigo),
                   ),
                   Tooltip(
                     message: 'Inserta este fragmento exactamente donde esté parpadeando el cursor en el editor',

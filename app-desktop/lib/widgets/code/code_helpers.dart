@@ -98,3 +98,14 @@ bool esConfirmacionDeCambio(String texto) => RegExp(
   r'^\s*(sí|si|ok|vale|adelante|hazlo|de acuerdo)(?:\s*[,!.]?\s*(corrígelo|corrigelo|hazlo|aplícalo|aplicalo))?\s*[.!]?\s*$',
   caseSensitive: false,
 ).hasMatch(texto);
+
+bool esSolicitudNueva(String texto) =>
+    !esPeticionDeCambio(texto) &&
+    !RegExp(
+      r'\b(este archivo|este c[oó]digo|esta funci[oó]n|este programa|archivo actual|c[oó]digo actual)\b',
+      caseSensitive: false,
+    ).hasMatch(texto) &&
+    RegExp(
+      r'\b(crea\w*|cr[eé]ame|haz(?:me)?|genera\w*|escr[ií]be\w*|escribir|dame|imprim[ae]|imprimir|muestra\w*|calcula\w*|implementa\w*)\b',
+      caseSensitive: false,
+    ).hasMatch(texto);

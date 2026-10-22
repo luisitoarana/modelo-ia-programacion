@@ -17,21 +17,9 @@ class _ApiEditor extends ApiClient {
   final modos = <String?>[];
   int conversaciones = 0;
   bool falla = false;
+  bool propuestaInvalida = false;
   String respuesta = '```python\nprint(2)\n```';
   Completer<void>? espera;
-
-  @override
-  Future<Map<String, dynamic>> tareasEstudio() async => {
-    'tareas': [
-      {
-        'id': 'm1_1',
-        'modulo': 1,
-        'competencia': 'Variables',
-        'consigna': 'Pide código para mostrar una edad.',
-        'solicitud': 'Crea código para mostrar una edad.',
-      },
-    ],
-  };
 
   @override
   Future<String> crearConversacion(String titulo) async {
@@ -42,6 +30,8 @@ class _ApiEditor extends ApiClient {
   @override
   Future<Map<String, dynamic>> validarSintaxisPython(String codigo) async => {
     'valido': true,
+    'valido_para_aplicar': !propuestaInvalida,
+    'mensaje': propuestaInvalida ? "undefined name 'nota'" : 'Sintaxis válida',
   };
 
   @override
@@ -125,15 +115,52 @@ String _codigo(WidgetTester tester) => tester
 
 void main() {
   testWidgets(
-    'solo código: genera desde un reto curricular y aplica correcciones sucesivas en el mismo archivo',
+    'no aplica una propuesta con nombres indefinidos aunque su sintaxis sea válida',
+    (tester) async {
+      final api = _ApiEditor()
+        ..propuestaInvalida = true
+        ..respuesta = '```python\nprint(nota)\n```';
+      await _montar(tester, api, soloCodigo: true);
+      await _nuevo(tester, 'actual.py');
+      await tester.enterText(
+        find.byKey(const ValueKey('editor-codigo')),
+        'print(1)',
+      );
+      await _enviar(tester, 'Corrige este archivo');
+      expect(_codigo(tester), 'print(1)');
+      expect(find.textContaining("undefined name 'nota'"), findsWidgets);
+      expect(find.text('Generando respuesta...'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'imprime un nombre abre otra creación sin arrastrar el archivo anterior',
+    (tester) async {
+      final api = _ApiEditor()..respuesta = '```python\nprint("Luis")\n```';
+      await _montar(tester, api, soloCodigo: true);
+      await _nuevo(tester, 'suma.py');
+      await tester.enterText(
+        find.byKey(const ValueKey('editor-codigo')),
+        'print(100+200)',
+      );
+      await _enviar(tester, 'Imprime el nombre Luis');
+      expect(api.preguntas.last, contains('[EDITOR_OPERACION:crear]'));
+      expect(api.preguntas.last, isNot(contains('100+200')));
+      expect(_codigo(tester), 'print("Luis")');
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+  testWidgets(
+    'solo código: genera desde una pregunta del módulo y aplica correcciones sucesivas en el mismo archivo',
     (tester) async {
       final api = _ApiEditor();
       await _montar(tester, api, soloCodigo: true);
       await _nuevo(tester, 'inicial.py');
-      await tester.ensureVisible(find.text('Retos Curriculares'));
-      await tester.tap(find.text('Retos Curriculares'));
+      await tester.ensureVisible(find.text('Preguntas de los módulos'));
+      await tester.tap(find.text('Preguntas de los módulos'));
       await tester.pumpAndSettle();
-      expect(find.text('Copiar consigna'), findsWidgets);
+      expect(find.text('Copiar pregunta'), findsWidgets);
       expect(find.textContaining('Ver Pistas'), findsNothing);
       await tester.tap(find.text('Generar código').first);
       await tester.pumpAndSettle();

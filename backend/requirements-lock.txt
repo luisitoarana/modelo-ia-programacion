@@ -31,6 +31,7 @@ pycparser==3.11
 pydantic-settings==2.15.0
 pydantic==2.14.1
 pydantic_core==2.50.1
+pyflakes==3.4.0
 Pygments==2.21.0
 PyJWT==2.15.1
 PyMySQL==1.2.3

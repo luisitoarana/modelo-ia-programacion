@@ -1,5 +1,19 @@
 # Validación del flujo de investigación — 22 de octubre de 2026
 
+## Corrección vigente: NameError y separación entre tareas del editor
+
+Esta revisión sustituye la reparación automática que añadía una impresión al programa del modelo. El backend ya no completa salidas ni añade valores para simular que la generación fue correcta: valida y solicita al mismo modelo una reparación, con un máximo de un intento. Se conserva el modelo local y sus pesos.
+
+El error reportado (`nota` sin definir) pasaba la comprobación de sintaxis. Se añadió Pyflakes 3.4.0 como dependencia de ejecución para detectar nombres indefinidos sin ejecutar el programa. La API distingue entre sintaxis válida y propuesta aplicable. El editor consulta esa verificación antes de aplicar, reemplazar o crear un archivo de una respuesta. Si el modelo repite el error, se muestra el diagnóstico y el archivo se conserva. Tampoco se admite ocultar un dato ausente del NameError asignándole una constante inventada sin autorización en la petición.
+
+Las peticiones del editor se separan mediante marcadores que conservan también instrucciones de varias líneas. Una creación nueva no recibe código ni objetivos de otra tarea, aunque se realice dentro del mismo chat. Para corregir, el archivo y el error actuales son la fuente; las confirmaciones breves pueden recuperar la propuesta anterior. Se simplificaron las instrucciones de Solo código para evitar que ejemplos o instrucciones pedagógicas ajenas dominaran la petición. Se retiró además la asociación errónea que nombraba `calcula_promedio.py` a cualquier programa que mencionara una nota.
+
+En Solo código, el apartado ahora se llama **Preguntas de los módulos**. Ofrece un enunciado editable por cada una de las once lecciones existentes; no incluye código inicial, soluciones, pistas ni guía docente. Se puede copiar la pregunta o generar su código. El chat admite también solicitudes independientes. Si se solicita «mi nombre», se incorpora únicamente el nombre de la cuenta actual, sin correo ni contraseña. El explicador conserva su recorrido existente.
+
+Comprobación real por HTTP contra el backend local, con autenticación y el mismo chat: generar 13+29, imprimir Luis, cambiar a Camila, crear una calculadora por teclado y corregir el NameError de nota. Se ejecutaron los programas y se verificaron sus resultados. La calculadora pasó suma y división por cero. La corrección final solicitó la nota con input y pasó tanto 8 → Aprobado como 5 → Reprobado, sin la nota fija 7.5 detectada y rechazada durante la revisión. La conversación creada para estas pruebas se eliminó al terminar; no se modificaron conversaciones anteriores ni entregas de alumnos.
+
+Resultado final: **50 pruebas backend y 32 pruebas Flutter aprobadas**, más compilación Windows. Se probaron la separación de tareas, el caso exacto de nombre indefinido, rechazo de una corrección repetida, conservación del archivo y cobertura de las once preguntas. Los cinco casos reales aprobados no demuestran que cualquier solicitud futura del modelo sea correcta ni constituyen resultados educativos. No se declara validación manual de toda la ventana del usuario.
+
 ## Alcance de la entrega
 
 Pretest e intervención/postest por estudiante en la aplicación Flutter y en la API, con instrumentos guardados, bloqueo de ayuda, revisión humana y exportación. El portal web conserva su interfaz previa: no ofrece todavía estas nuevas pantallas de instrumentos; para aplicar la evaluación se utiliza la aplicación de escritorio. El backend controla los accesos desde cualquier cliente.

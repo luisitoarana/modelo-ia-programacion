@@ -34,6 +34,8 @@ from app.services.content_filter import ResultadoFiltro, evaluar_mensaje
 from app.services.prompt_pedagogico import construir_prompt_sistema_chat
 from app.services.web_search import buscar_web
 from app.utils.logger import obtener_logger
+from app.services.contexto_editor import peticion_actual as _extraer_peticion_actual, es_creacion_nueva
+from app.services.validacion_generacion import errores_nombres
 
 
 log = obtener_logger(__name__)
@@ -67,8 +69,7 @@ _MAX_HISTORIAL = 10  # últimos N mensajes como contexto
 
 def _peticion_actual(texto: str) -> str:
     """Separa la instrucción del estudiante del contexto de archivo del editor."""
-    match = re.search(r"(?mi)^Petición(?: actual)? del estudiante:\s*(.+)$", texto)
-    return match.group(1).strip() if match else texto.strip()
+    return _extraer_peticion_actual(texto)
 
 
 def _codigo_directo(texto: str, codigo: str | None, peticion: str = '') -> str:
@@ -80,21 +81,24 @@ def _codigo_directo(texto: str, codigo: str | None, peticion: str = '') -> str:
     arbol = ast.parse(bloques[0] if bloques else codigo or texto)
     if not arbol.body:
         raise ValueError('El archivo de respuesta está vacío.')
+    diagnosticos = errores_nombres(ast.unparse(arbol))
+    if diagnosticos:
+        raise ValueError('; '.join(diagnosticos))
+    nombre_ausente = re.search(r"NameError:\s*name\s+['\"]?([A-Za-z_]\w*)['\"]?\s+is not defined", peticion, re.I)
+    if nombre_ausente:
+        nombre = nombre_ausente.group(1)
+        valor_solicitado = re.search(r'\b' + re.escape(nombre) + r'''\s*(?:=|:|es|de|en|a)\s*(?:[-+]?\d|['"]|True\b|False\b|None\b)''', peticion, re.I)
+        if not valor_solicitado:
+            for nodo in ast.walk(arbol):
+                if isinstance(nodo, ast.Assign) and isinstance(nodo.value, ast.Constant) and any(isinstance(t, ast.Name) and t.id == nombre for t in nodo.targets):
+                    raise ValueError(f'No se conoce el dato real {nombre}. No lo sustituyas por {nodo.value.value!r}: solicita {nombre} con input() y conserva la lógica original.')
     usados = {n.id for n in ast.walk(arbol) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
     for nodo in ast.walk(arbol):
         if isinstance(nodo, ast.Assign) and any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'input' for n in ast.walk(nodo.value)):
             for destino in nodo.targets:
                 if isinstance(destino, ast.Name) and destino.id not in usados and re.search(
                     r'\b(?:muestra|imprime|mostrar|imprimir)\b[^.\n]{0,100}\b' + re.escape(destino.id) + r'\b', peticion, re.I):
-                    if nodo in arbol.body:
-                        # Completar una salida expresamente pedida y omitida por
-                        # el modelo, solo para asignaciones de ámbito principal.
-                        # No inventar datos: se imprime la entrada del usuario.
-                        arbol.body.insert(arbol.body.index(nodo) + 1,
-                            ast.Expr(value=ast.Call(func=ast.Name(id='print', ctx=ast.Load()),
-                                args=[ast.Name(id=destino.id, ctx=ast.Load())], keywords=[])))
-                    else:
-                        raise ValueError(f'Se pidió mostrar {destino.id}, pero se solicita con input y nunca se utiliza. Incluye en la salida todos los datos solicitados.')
+                    raise ValueError(f'Se pidió mostrar {destino.id}, pero se solicita con input y nunca se utiliza. Incluye en la salida todos los datos solicitados.')
     # Verificar nombres de módulos básicos conocidos sin importar ni ejecutar
     # dependencias propuestas por el modelo, ni consultar servicios externos.
     import math, statistics, string, collections, itertools, functools, operator
@@ -469,31 +473,31 @@ class ChatService:
                         if any(sin in t_low for sin in ("sin explicar", "sin explicacion", "solo codigo", "solo el codigo", "sin acompanamiento")):
                             modo_acomp = "sin_acompanamiento"
 
-                    # Conservar el último bloque Python completo para continuidad del diálogo
-                    prompt_con_historial = texto_usuario
-                    if historial and len(historial) > 1:
-                        buffer_hist = []
-                        previos = historial[:-1][-2:]
-                        for m in previos:
-                            rol_txt = "Estudiante" if m.rol == RolMensaje.USUARIO else "Asistente"
-                            contenido = _peticion_actual(m.contenido) if m.rol == RolMensaje.USUARIO else m.contenido
-                            c_limpio = contenido[:260] + "..." if len(contenido) > 260 else contenido
-                            buffer_hist.append(f"{rol_txt}: {c_limpio}")
-                        if buffer_hist:
-                            prompt_con_historial = (
-                                "[HISTORIAL PREVIO DEL DIÁLOGO]\n"
-                                + "\n".join(buffer_hist)
-                                + "\n[/HISTORIAL PREVIO]\n\n"
-                                + "[PETICIÓN ACTUAL]\n" + texto_usuario
-                            )
-                        ultimo_codigo = _ultimo_bloque_python(historial[:-1])
-                        if ultimo_codigo and "Código actual en el editor" not in texto_usuario and "Último código generado para continuar" not in texto_usuario:
-                            prompt_con_historial += (
-                                "\n\n[ARCHIVO PYTHON GENERADO ANTES; conserva su "
-                                "funcionalidad y aplica la petición actual]\n"
-                                f"```python\n{ultimo_codigo[:3000]}\n```\n"
-                                "[/ARCHIVO PYTHON GENERADO ANTES]"
-                            )
+                    nueva_creacion = es_creacion_nueva(texto_usuario)
+                    pedido = _peticion_actual(texto_usuario)
+                    fuente_actual = texto_usuario
+                    if nueva_creacion:
+                        # La tarea nueva conserva su petición completa, no el archivo
+                        # ni el código de otra tarea que estuvieran abiertos.
+                        fuente_actual = "Petición actual del estudiante: " + pedido
+                    prompt_con_historial = "[PETICIÓN ACTUAL]\n" + fuente_actual
+                    if not nueva_creacion and historial and len(historial) > 1:
+                        anteriores = historial[:-1]
+                        confirmacion = bool(re.fullmatch(r"\s*(sí|si|ok|vale|adelante|hazlo|de acuerdo)[.!]?\s*", pedido, re.I))
+                        archivo_actual = "Código actual en el editor" in texto_usuario
+                        if archivo_actual and not confirmacion:
+                            # El archivo y el error actuales son la fuente de verdad;
+                            # ni el código ni el objetivo de otra tarea se reutilizan.
+                            contexto = ""
+                        else:
+                            contexto = "\n".join(
+                                ("Estudiante: " + _peticion_actual(m.contenido) if m.rol == RolMensaje.USUARIO else "Asistente: " + m.contenido)[:3000]
+                                for m in anteriores[-2:])
+                            codigo_anterior = _ultimo_bloque_python(anteriores)
+                            if codigo_anterior and not archivo_actual:
+                                contexto += "\nÚltimo código para continuar:\n```python\n" + codigo_anterior + "\n```"
+                        if contexto:
+                            prompt_con_historial = "[HISTORIAL PREVIO]\n" + contexto + "\n[/HISTORIAL PREVIO]\n\n" + prompt_con_historial
 
                     r_local = await asyncio.to_thread(
                         motor_pedagogico_service.generar_respuesta,
@@ -537,7 +541,7 @@ class ChatService:
                                 # No ejecutar código del modelo en el servidor para validarlo.
                                 reparada = await asyncio.to_thread(
                                     motor_pedagogico_service.generar_respuesta,
-                                    prompt_con_historial + "\n\n[REPARACIÓN DE LA RESPUESTA]\n"
+                                    "[PETICIÓN ACTUAL]\n" + fuente_actual + "\n\n[REPARACIÓN DE LA RESPUESTA]\n"
                                     + "Tu propuesta no pasó la validación Python: " + str(error)
                                     + "\nPropuesta rechazada:\n" + r_local.texto[:6000]
                                     + "\nDevuelve un único bloque Python completo que resuelva la petición original.",
@@ -547,8 +551,8 @@ class ChatService:
                                     if not reparada or not reparada.texto:
                                         raise ValueError('Respuesta vacía')
                                     respuesta_local = _codigo_directo(reparada.texto, reparada.codigo, _peticion_actual(texto_usuario))
-                                except (SyntaxError, ValueError):
-                                    return 'No se pudo obtener una corrección Python válida. El archivo se conserva; vuelve a intentarlo.', {
+                                except (SyntaxError, ValueError) as fallo_final:
+                                    return "No se aplicó la respuesta del modelo porque sigue fallando la verificación: " + str(fallo_final) + ". El archivo se conserva.", {
                                         'origen': 'error_generacion_directa', 'tokens': r_local.tokens_generados, 'latencia': r_local.latencia_segundos,
                                     }
                                 reparada.contexto_recortado |= r_local.contexto_recortado

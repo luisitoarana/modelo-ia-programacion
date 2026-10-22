@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from app.core.security import obtener_usuario_actual
 from app.models.usuario import Usuario
 from app.services.web_search import buscar_web
+from app.services.validacion_generacion import errores_nombres
 
 # Reusar el sandbox del MCP server para ejecutar Python con timeout.
 _RAIZ = Path(__file__).resolve().parents[3]
@@ -51,7 +52,10 @@ async def validar_sintaxis(
             "columna": exc.offset,
             "mensaje": exc.msg,
         }
-    return {"valido": True, "linea": None, "columna": None, "mensaje": "Sintaxis válida"}
+    errores = errores_nombres(req.codigo)
+    return {"valido": True, "valido_para_aplicar": not errores, "errores": errores,
+            "linea": None, "columna": None,
+            "mensaje": '; '.join(errores) if errores else "Sintaxis válida; sin nombres indefinidos detectados"}
 
 
 @router.get("/buscar-web", summary="Buscar en internet (sin API key)")

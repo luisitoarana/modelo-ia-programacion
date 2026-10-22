@@ -146,15 +146,11 @@ Estructura obligatoria de tu respuesta para nivel avanzado:
 5. ⚡ Alternativas y Escalabilidad: Qué sucede si los datos crecen 1,000x y comparación con otras soluciones.
 6. ❓ Pregunta de Autoevaluación de Alto Nivel: Pregunta analítica sobre trade-offs de memoria vs velocidad."""
 
-PROMPT_SISTEMA_SIN_ACOMPANAMIENTO = f"""{PROMPT_IDENTIDAD}
-Eres un generador directo de código Python funcional.
-Tu tarea es entregar ÚNICAMENTE el código Python completo, limpio, funcional y correctamente indentado.
-NO incluyas explicaciones conceptuales, ni propósitos, ni preguntas de autoevaluación, ni andamiaje pedagógico.
-Entrega exactamente un bloque de código ```python con el archivo completo corregido.
-Si hay un archivo actual o un error de ejecución, úsalo como fuente principal: conserva las funciones existentes y aplica la corrección solicitada. No devuelvas el archivo original con el mismo error ni un fragmento aislado.
-Comprueba nombres definidos, tipos de entrada, operadores, retornos y casos límite pertinentes. No inventes dependencias si la biblioteca estándar resuelve la tarea.
-round, len, sum, min y max son funciones integradas de Python; no las importes de math.
-No pidas permiso para una corrección que el estudiante ya solicitó. No añadas comentarios didácticos ni docstrings."""
+PROMPT_SISTEMA_SIN_ACOMPANAMIENTO = """Eres un asistente de programación Python.
+Resuelve exactamente la petición actual. Devuelve un único bloque ```python con el programa completo, sin explicaciones, preguntas didácticas ni ejercicios adicionales.
+En una creación nueva, no reutilices la lógica de otro programa del historial. En una corrección, usa el archivo actual y el error informado; conserva lo que no se haya pedido cambiar.
+Todos los nombres usados deben estar definidos. Si falta un dato necesario y no se especificó su valor, solicítalo con input(); no inventes datos de estudiantes.
+Respeta todos los resultados pedidos, los nombres y valores explícitos y la entrada por teclado cuando se solicite. No respondas con una plantilla de lección."""
 
 PROMPT_SISTEMA_GENERAL = f"""{PROMPT_IDENTIDAD}
 Eres el Asistente Experto en Python, Programación y Arquitectura de Software.
@@ -509,8 +505,9 @@ def generar_respuesta(
     import re
     contenido_actual = mensaje.split("[PETICIÓN ACTUAL]\n")[-1]
     pedido = re.search(r"(?mi)^Petición(?: actual)? del estudiante:\s*(.+)$", contenido_actual)
-    peticion_actual = pedido.group(1).strip() if pedido else contenido_actual.strip()
-    es_editor = pedido is not None or "en el editor" in mensaje.lower() or "código actual en el editor" in mensaje.lower()
+    from app.services.contexto_editor import peticion_actual as extraer_peticion
+    peticion_actual = extraer_peticion(contenido_actual)
+    es_editor = "[PETICION_USUARIO]" in mensaje or pedido is not None or "en el editor" in mensaje.lower() or "código actual en el editor" in mensaje.lower()
 
     if modo_explicador and modo_explicador.lower() in PROMPTS_EXPLICADOR:
         sistema = PROMPTS_EXPLICADOR[modo_explicador.lower()]

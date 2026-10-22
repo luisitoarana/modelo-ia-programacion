@@ -17,12 +17,8 @@ class LeccionCurricular {
   final IconData icono;
 
   List<String> get pistasAndamiaje => pistas;
-  String get consignaDirecta {
-    final instrucciones = RegExp(r'^#\s*\d+[.)]\s*(.+)$', multiLine: true)
-        .allMatches(codigoInicial).map((m) => m.group(1)!).toList();
-    return instrucciones.isEmpty ? descripcionPedagogica : instrucciones.join('\n');
-  }
-
+  String get preguntaCodigo => CurriculumCatalog.preguntasCodigo[id] ??
+      'Escribe un programa Python sobre $titulo. $descripcionPedagogica';
   const LeccionCurricular({
     required this.id,
     required this.moduloId,
@@ -42,6 +38,20 @@ class LeccionCurricular {
 
 /// Catálogo local de lecciones curriculares de Python (offline first).
 class CurriculumCatalog {
+  /// Peticiones editables sobre las mismas lecciones; no contienen soluciones.
+  static const preguntasCodigo = <String, String>{
+    'm1_l1_variables': 'Escribe un programa que guarde mi nombre en una variable y lo muestre con print().',
+    'm1_l2_tipos_datos': 'Escribe un programa con una variable int, una float, una str y una bool. Muestra sus valores y sus tipos usando type().',
+    'm1_l3_palabras_reservadas': 'Escribe un programa que muestre las palabras reservadas de Python con keyword.kwlist y compruebe si class y nombre son palabras reservadas.',
+    'm1_l4_indentacion': 'Escribe un programa que pida una edad por teclado y use if/else, dos puntos e indentación correcta para mostrar si es mayor de edad.',
+    'm2_l1_condicionales': 'Escribe un programa que pida una nota por teclado. Usa if/elif/else para distinguir entre nota inválida fuera de 0 a 10, aprobado desde 7 y reprobado.',
+    'm2_l2_bucles_acumuladores': 'Escribe un programa que use for y un acumulador para sumar una lista de números. Debe funcionar también con una lista vacía.',
+    'm2_l3_listas_indexacion': 'Escribe un programa que cree una lista, agregue un elemento y muestre el primero y el último usando índices. Evita errores si la lista está vacía.',
+    'm2_l4_defensiva_zerodivision': 'Escribe un programa que pida dos números por teclado y calcule su división. Maneja la entrada no numérica y el divisor cero.',
+    'm3_l1_funciones_puras': 'Escribe una función calcular_area(base, altura) que devuelva el área de un rectángulo con return. Pide los datos por teclado, llama a la función y muestra el resultado.',
+    'm3_l2_busqueda_binaria_bigo': 'Implementa una búsqueda binaria que reciba una lista ordenada y un valor. Devuelve su índice o -1 si no existe y muestra el resultado de una llamada.',
+    'm3_l3_poo_clases': 'Escribe una clase Persona con atributos nombre y edad, constructor y un método presentarse. Crea una instancia con datos recibidos por teclado y muestra su presentación.',
+  };
   static const List<LeccionCurricular> lecciones = [
     // ── MÓDULO 1: PRINCIPIANTE ──
     LeccionCurricular(

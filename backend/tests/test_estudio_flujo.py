@@ -41,6 +41,17 @@ async def prueba():
 
 
 @pytest.mark.asyncio
+async def test_validacion_distingue_sintaxis_de_nombre_indefinido(prueba):
+    c, usuarios = prueba
+    r = await c.post('/api/v1/herramientas/validar-sintaxis', headers=usuarios['profesor'][0],
+                     json={'codigo':'edad=25\nif edad>=18 and nota>=7:\n    print("Aprobado")'})
+    assert r.status_code == 200
+    assert r.json()['valido'] is True
+    assert r.json()['valido_para_aplicar'] is False
+    assert any("undefined name 'nota'" in e for e in r.json()['errores'])
+
+
+@pytest.mark.asyncio
 async def test_docente_previsualiza_sin_entregas_ni_asignacion(prueba):
     c, usuarios = prueba
     profesor = usuarios['profesor'][0]
