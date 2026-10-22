@@ -10,8 +10,63 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.database import actualizar_esquema_desarrollo
 from app.schemas.chat import EnviarMensaje
 from app.services import motor_pedagogico_service as motor
-from app.services.chat_service import ChatService
+from app.services.chat_service import ChatService, _codigo_directo
 from app.models.conversacion import Mensaje, RolMensaje
+
+
+def test_importacion_inexistente_se_detecta_sin_ejecutar_el_programa():
+    with pytest.raises(ValueError, match='ImportError: math no contiene round'):
+        _codigo_directo('```python\nfrom math import round\nprint(round(1.67))\n```', None)
+    assert 'round(1.67)' in _codigo_directo('```python\nprint(round(1.67))\n```', None)
+
+
+@pytest.mark.asyncio
+async def test_andamiaje_ancla_codigo_del_estudiante_aunque_modelo_no_lo_repita(monkeypatch):
+    monkeypatch.setattr(motor, 'esta_disponible', lambda: True)
+    monkeypatch.setattr(motor, 'generar_respuesta', lambda *a, **k: motor.ResultadoMotorLocal(
+        'La variable almacena el dato y print lo muestra.', None, 10, .1, 100))
+    texto, meta = await ChatService(None)._generar_respuesta(
+        'Explica mi intento:\n```python\nedad=20\nprint(edad)\n```', [],
+        proveedor_forzado='propio', modo_acompanamiento='con_acompanamiento')
+    assert meta['pregunta_origen']=='ast_del_codigo'
+    assert '`edad`' in texto and 'entero (int)' in texto
+
+
+@pytest.mark.asyncio
+async def test_explicar_no_sustituye_codigo_del_estudiante_por_entrada_inventada(monkeypatch):
+    monkeypatch.setattr(motor, 'esta_disponible', lambda: True)
+    inventado = 'edad=input("Edad: ")\nprint(edad)'
+    monkeypatch.setattr(motor, 'generar_respuesta', lambda *a, **k: motor.ResultadoMotorLocal(
+        'Usa input para pedir la edad.\n```python\n'+inventado+'\n```', inventado, 10, .1, 100))
+    texto, meta = await ChatService(None)._generar_respuesta(
+        'Petición actual del estudiante: Explica mi intento sin modificar el código.\n```python\nedad=20\nprint(edad)\n```',
+        [], proveedor_forzado='propio', modo_acompanamiento='con_acompanamiento')
+    assert 'input(' not in texto
+    assert 'int (entero)' in texto and 'Pregunta sobre este código' in texto
+    assert meta['explicacion_origen']=='ast_por_cambio_no_solicitado'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('reparacion_valida', [True, False])
+async def test_generacion_directa_repara_sintaxis_una_vez_sin_andamiaje(monkeypatch, reparacion_valida):
+    monkeypatch.setattr(motor, 'esta_disponible', lambda: True)
+    def resultado(codigo):
+        return motor.ResultadoMotorLocal('```python\n'+codigo+'\n```', codigo, 10, .1, 100)
+    consulta = Mock(side_effect=[resultado('print('), resultado('print(2)' if reparacion_valida else 'print(')])
+    monkeypatch.setattr(motor, 'generar_respuesta', consulta)
+    respuesta, meta = await ChatService(None)._generar_respuesta(
+        'Petición actual del estudiante: genera la corrección\nCódigo actual en el editor:\n```python\nprint(1)\n```',
+        [], proveedor_forzado='propio', modo_acompanamiento='sin_acompanamiento')
+    assert consulta.call_count == 2
+    assert 'print(1)' in consulta.call_args.args[0]
+    assert '[REPARACIÓN DE LA RESPUESTA]' in consulta.call_args.args[0]
+    assert all(c.kwargs['modo_acompanamiento']=='sin_acompanamiento' for c in consulta.call_args_list)
+    if reparacion_valida:
+        assert respuesta == '```python\nprint(2)\n```'
+        assert meta['tokens'] == 20
+    else:
+        assert meta['origen']=='error_generacion_directa'
+        assert 'archivo se conserva' in respuesta
 
 
 def test_archivo_mayor_de_8000_caracteres_se_acepta_completo():

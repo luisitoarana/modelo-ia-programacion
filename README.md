@@ -181,11 +181,19 @@ Abre **Pretest, postest y revisión docente** desde la aplicación. Puedes activ
 
 Las respuestas, incluso incorrectas o vacías, se entregan al servidor. El docente revisa con rúbrica, exporta CSV/JSON y consulta la comparación individual cuando ambas fases estén calificadas. Las preguntas de un instrumento iniciado no cambian. La cuenta pública sirve para demostraciones; cada participante real necesita una cuenta propia.
 
+**Orden de aplicación:** abre el pretest y asigna a cada alumno su grupo y fase **Pretest**. Cuando entregue, usa **Asignar grupo/fase → Intervención**. Al terminar la práctica, abre el postest y asigna la fase **Postest**. Abrir/cerrar un test controla si recibe entregas; cambiar tu selector superior solo cambia tu exploración como administrador, no el grupo de los alumnos.
+
+Durante la intervención, el editor incluye **Práctica: generar código** para el grupo directo y **Práctica con andamiaje** para el otro grupo. Las consignas comunes se pueden copiar o enviar a la IA desde el apartado de tareas. El explicador ofrece **Tareas de práctica con andamiaje**, donde el alumno trabaja un intento y contrasta su predicción con la explicación. Son las mismas competencias del pre/post, con otros datos; el postest se resuelve sin ayuda para medir transferencia, no memorización. El servidor conserva la selección de competencias del pretest de cada participante y bloquea las tareas de práctica durante sus evaluaciones.
+
 El banco es un **piloto pendiente de aprobación del profesor**. Consulta el [protocolo y las seis parejas de tareas](research/PROTOCOLO_PRE_POST_ANDAMIAJE.md) y la [validación del flujo](docs/VALIDACION_ESTUDIO_2026-10-22.md). No se atribuye un efecto educativo a las pruebas del software.
 
 ### Editor y explicador
 
 El editor mantiene una conversación y envía el archivo actual. Las solicitudes de modificación y las confirmaciones de una propuesta pueden aplicar cambios a la pestaña original; el código Python se valida sintácticamente antes de sustituirlo. Si cambias el archivo mientras llega la respuesta, se conserva tu edición. Revisa el diff y prueba el resultado: sintaxis válida no demuestra corrección funcional.
+
+En **Solo código**, las peticiones de corrección conservan el archivo actual y no se interpretan como programas nuevos por incluir «genera». La respuesta debe contener una única solución Python, sin explicaciones didácticas. Se comprueban sintaxis e importaciones de algunas bibliotecas básicas; una propuesta rechazada tiene como máximo un intento de reparación con el mismo motor. Si falla, se informa y se conserva el archivo. Estas comprobaciones no prueban cualquier comportamiento del programa.
+
+En el explicador, la petición incluye la predicción y el razonamiento del alumno. Si se solicitó explicar sin modificar y el modelo cambia el código, se conserva el original y se muestra una explicación de respaldo basada en su estructura, identificada como tal. Las preguntas se anclan al código analizado. No se atribuye una calificación ni aprendizaje demostrado a una respuesta de la IA.
 
 Los archivos largos se aceptan en el transporte, pero el motor tiene un contexto limitado. Cuando deba recortar contenido, la explicación es parcial y no se debe reemplazar automáticamente el archivo completo. Las pruebas del modelo deben incluir varios turnos, errores, cambios de requisitos y preguntas diferentes; la documentación de validación registra el alcance real.
 

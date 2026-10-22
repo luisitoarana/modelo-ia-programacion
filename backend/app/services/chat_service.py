@@ -70,6 +70,33 @@ def _peticion_actual(texto: str) -> str:
     match = re.search(r"(?mi)^Petición(?: actual)? del estudiante:\s*(.+)$", texto)
     return match.group(1).strip() if match else texto.strip()
 
+
+def _codigo_directo(texto: str, codigo: str | None) -> str:
+    """Una sola solución completa; comentarios didácticos fuera de la condición directa."""
+    import ast
+    bloques = re.findall(r'```(?:python|py)?\s*\n(.*?)```', texto, re.S)
+    if len(bloques) > 1:
+        raise ValueError('Devuelve un único bloque con el archivo completo corregido, no versiones alternativas.')
+    arbol = ast.parse(bloques[0] if bloques else codigo or texto)
+    if not arbol.body:
+        raise ValueError('El archivo de respuesta está vacío.')
+    # Verificar nombres de módulos básicos conocidos sin importar ni ejecutar
+    # dependencias propuestas por el modelo, ni consultar servicios externos.
+    import math, statistics, string, collections, itertools, functools, operator
+    modulos = {m.__name__: m for m in (math, statistics, string, collections, itertools, functools, operator)}
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.ImportFrom) and not nodo.level and nodo.module in modulos:
+            for alias in nodo.names:
+                if alias.name != '*' and not hasattr(modulos[nodo.module], alias.name):
+                    raise ValueError(f'ImportError: {nodo.module} no contiene {alias.name}. Corrige la importación. round, len, sum, min y max son funciones integradas y no se importan de math.')
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if nodo.body and isinstance(nodo.body[0], ast.Expr) and isinstance(nodo.body[0].value, ast.Constant) and isinstance(nodo.body[0].value.value, str):
+                nodo.body.pop(0)
+                if not nodo.body:
+                    nodo.body.append(ast.Pass())
+    return '```python\n' + ast.unparse(ast.fix_missing_locations(arbol)).strip() + '\n```'
+
 _BLOQUE_PYTHON = re.compile(
     r"```(?:python|py)?[ \t]*\r?\n(.*?)```", re.IGNORECASE | re.DOTALL
 )
@@ -463,34 +490,56 @@ class ChatService:
                     if r_local and r_local.texto:
                         respuesta_local = r_local.texto
                         andamiaje_verificado = False
-                        if modo_acomp == 'con_acompanamiento' and r_local.codigo:
+                        bloques_actuales = re.findall(r'```(?:python|py)\s*\n(.*?)```', texto_usuario, re.S)
+                        codigo_explicado = r_local.codigo or (bloques_actuales[-1] if bloques_actuales else None)
+                        explicacion_estatica = False
+                        pedido_actual = _peticion_actual(texto_usuario).lower()
+                        solo_explicar = re.search(r'\b(explica|explicar|analiza|comprender)\b', pedido_actual) and not re.search(r'\b(corrige|modifica|cambia|genera|crea|repara|arregla)\b', pedido_actual)
+                        if modo_acomp == 'con_acompanamiento' and bloques_actuales and solo_explicar:
+                            import ast
+                            from app.services.andamiaje_verificado import explicar_sin_cambiar
+                            codigo_explicado = bloques_actuales[-1]
+                            try:
+                                original = ast.parse(codigo_explicado)
+                                if r_local.codigo and ast.dump(ast.parse(r_local.codigo)) != ast.dump(original):
+                                    respuesta_local = explicar_sin_cambiar(codigo_explicado)
+                                    explicacion_estatica = True
+                            except (SyntaxError, ValueError):
+                                pass
+                        if modo_acomp == 'con_acompanamiento' and codigo_explicado:
                             from app.services.andamiaje_verificado import completar
                             try:
-                                respuesta_local = completar(respuesta_local, r_local.codigo)
+                                respuesta_local = completar(respuesta_local, codigo_explicado)
                                 andamiaje_verificado = True
                             except (SyntaxError, ValueError):
                                 # No presentar una comprobación estática de código inválido.
                                 pass
                         if modo_acomp == 'sin_acompanamiento':
-                            import ast
-                            codigo = r_local.codigo
-                            if not codigo:
-                                candidatos = re.findall(r'```(?:python|py)?\s*\n(.*?)```', r_local.texto, re.S)
-                                codigo = candidatos[0] if candidatos else r_local.texto
                             try:
-                                arbol = ast.parse(codigo)
-                            except (SyntaxError, ValueError):
-                                return 'No se obtuvo código Python válido. Vuelve a solicitar la generación.', {
-                                    'origen': 'error_generacion_directa', 'tokens': r_local.tokens_generados, 'latencia': r_local.latencia_segundos,
-                                }
-                            # La condición directa no recibe explicaciones en comentarios/docstrings.
-                            for nodo in ast.walk(arbol):
-                                if isinstance(nodo, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                                    if nodo.body and isinstance(nodo.body[0], ast.Expr) and isinstance(nodo.body[0].value, ast.Constant) and isinstance(nodo.body[0].value.value, str):
-                                        nodo.body.pop(0)
-                                        if not nodo.body:
-                                            nodo.body.append(ast.Pass())
-                            respuesta_local = '```python\n' + ast.unparse(ast.fix_missing_locations(arbol)).strip() + '\n```'
+                                respuesta_local = _codigo_directo(r_local.texto, r_local.codigo)
+                            except (SyntaxError, ValueError) as error:
+                                # Un solo intento de reparación, con el mismo motor y condición.
+                                # No ejecutar código del modelo en el servidor para validarlo.
+                                reparada = await asyncio.to_thread(
+                                    motor_pedagogico_service.generar_respuesta,
+                                    prompt_con_historial + "\n\n[REPARACIÓN DE LA RESPUESTA]\n"
+                                    + "Tu propuesta no pasó la validación Python: " + str(error)
+                                    + "\nPropuesta rechazada:\n" + r_local.texto[:6000]
+                                    + "\nDevuelve un único bloque Python completo que resuelva la petición original.",
+                                    modo_acompanamiento=modo_acomp, nivel_modulo=nivel_modulo, temperatura=0.1,
+                                )
+                                try:
+                                    if not reparada or not reparada.texto:
+                                        raise ValueError('Respuesta vacía')
+                                    respuesta_local = _codigo_directo(reparada.texto, reparada.codigo)
+                                except (SyntaxError, ValueError):
+                                    return 'No se pudo obtener una corrección Python válida. El archivo se conserva; vuelve a intentarlo.', {
+                                        'origen': 'error_generacion_directa', 'tokens': r_local.tokens_generados, 'latencia': r_local.latencia_segundos,
+                                    }
+                                reparada.contexto_recortado |= r_local.contexto_recortado
+                                reparada.tokens_generados += r_local.tokens_generados
+                                reparada.latencia_segundos += r_local.latencia_segundos
+                                r_local = reparada
                         return respuesta_local, {
                             "origen": "motor_pedagogico_local",
                             "proveedor": "propio",
@@ -502,6 +551,7 @@ class ChatService:
                             "contexto_recortado": r_local.contexto_recortado,
                             "respuesta_incompleta": r_local.respuesta_incompleta,
                             "pregunta_origen": "ast_del_codigo" if andamiaje_verificado else None,
+                            "explicacion_origen": "ast_por_cambio_no_solicitado" if explicacion_estatica else "modelo",
                         }
             except motor_pedagogico_service.MotorLocalError as exc:
                 return str(exc), {"origen": "error_motor_local", "proveedor": "propio", "tokens": 0, "latencia": 0.0}

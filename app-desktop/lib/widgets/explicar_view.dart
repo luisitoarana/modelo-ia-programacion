@@ -12,6 +12,7 @@ import '../services/curriculum_catalog.dart';
 import '../services/explicador_automatico.dart';
 import '../services/tts_service.dart';
 import '../theme.dart';
+import 'tareas_estudio.dart';
 
 /// Enfoques pedagógicos de explicación.
 enum ModoExplicacion {
@@ -61,6 +62,7 @@ class _ExplicarViewState extends State<ExplicarView> {
   ModoExplicacion _modo = ModoExplicacion.pasoAPaso;
   String? _nombreArchivo;
   LeccionCurricular? _leccionActiva;
+  String? _tareaPractica;
   final List<MapEntry<String, String>> _archivos = [];
   final _prediccionCtrl = TextEditingController();
   final _explicacionPropiaCtrl = TextEditingController();
@@ -223,6 +225,7 @@ class _ExplicarViewState extends State<ExplicarView> {
       _codigoCtrl.text = a.value;
       _nombreArchivo = a.key;
       _leccionActiva = null;
+      _tareaPractica = null;
       _reiniciarIntento();
     });
   }
@@ -290,7 +293,7 @@ class _ExplicarViewState extends State<ExplicarView> {
       await api.registrarIntentoAprendizaje(
         leccionId: _leccionActiva?.id,
         pregunta:
-            _leccionActiva?.preguntaAutoevaluacion ??
+            (_tareaPractica == null ? null : 'Tarea: $_tareaPractica\n¿Qué hará tu código y por qué?') ?? _leccionActiva?.preguntaAutoevaluacion ??
             '¿Qué hará este código y qué salida o resultado esperas?',
         modo: settings.modoAcompanamiento,
         codigoInicial: _codigoInicialIntento ?? codigoActual,
@@ -425,11 +428,17 @@ Pregunta de Reflexión a Incluir al Final: ${_leccionActiva!.preguntaAutoevaluac
 '''
         : '';
 
-    return '''Eres un profesor universitario senior de Python y experto en arquitectura de software.
+    return '''Petición actual del estudiante: ${_modo == ModoExplicacion.pasoAPaso || _modo == ModoExplicacion.complejidad ? 'Explica mi intento sin modificar el código.' : 'Analiza los errores o mejoras del código y propone una versión corregida.'}
+Eres un profesor universitario senior de Python y experto en arquitectura de software.
 Explica el siguiente código de forma rigurosa y adaptada pedagógicamente al estudiante.
 
 $adaptacionNivel
 $contextoCurricular
+
+${_tareaPractica == null ? '' : 'Tarea de práctica activa: $_tareaPractica'}
+Predicción inicial del estudiante (puede ser breve o incorrecta): ${_prediccionCtrl.text}
+Razonamiento del estudiante: ${_explicacionPropiaCtrl.text}
+ANDAMIAJE: parte de ese razonamiento y del código real. Identifica qué comprendió y qué necesita revisar sin calificarlo. Explica un paso concreto con un ejemplo diferente; pregunta por el efecto de cambiar un dato real del código. Ayuda a transferir la idea a la tarea, no a memorizar la respuesta. No afirmes que ha aprendido solo por contestar.
 
 DIRECTIVAS CRÍTICAS:
 - Responde OBLIGATORIAMENTE en idioma ESPAÑOL.
@@ -555,8 +564,7 @@ $codigo
   Widget build(BuildContext context) {
     final p = AppPalette.of(context);
     final settings = context.watch<SettingsProvider>();
-    if (settings.asignacionActiva &&
-        (settings.esSinAcompanamiento || settings.esBloqueadoPostTest)) {
+    if (settings.esSinAcompanamiento || settings.esBloqueadoPostTest) {
       return Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 520),
@@ -581,6 +589,21 @@ $codigo
       child: Column(
         children: [
           _header(p),
+          if (settings.esConAcompanamiento)
+            TextButton.icon(icon: const Icon(Icons.assignment_outlined),
+              label: const Text('Tareas de práctica con andamiaje'),
+              onPressed: _cargando ? null : () async {
+                final tarea = await elegirTareaEstudio(context, generar: false);
+                if (tarea == null || !mounted) return;
+                setState(() {
+                  _reiniciarIntento();
+                  _leccionActiva = null;
+                  _tareaPractica = tarea['consigna'] as String;
+                });
+              }),
+          if (_tareaPractica != null)
+            Padding(padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text('Tarea: $_tareaPractica\nEscribe o pega un intento en el editor y predice qué hará. Puedes equivocarte; después contrasta tu razonamiento con la explicación.')),
           _barraEjemplos(p),
           if (_archivos.isNotEmpty) _tabsArchivos(p),
           Expanded(
@@ -715,6 +738,7 @@ $codigo
                             _codigoCtrl.text = l.codigoInicial;
                             _nombreArchivo = '${l.id}.py';
                             _leccionActiva = l;
+                            _tareaPractica = null;
                             _reiniciarIntento();
                           });
                         },

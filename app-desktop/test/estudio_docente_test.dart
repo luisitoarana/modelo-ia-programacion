@@ -53,6 +53,7 @@ void main() {
       await tester.tap(find.text('Abrir pretest'));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Aplicar activación y preguntas'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Aplicar activación y preguntas'));
       await tester.pumpAndSettle();
       expect(api.guardada!['pre_abierto'], isTrue);

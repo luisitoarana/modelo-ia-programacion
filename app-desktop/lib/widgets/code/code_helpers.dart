@@ -90,7 +90,7 @@ String textoSeleccionadoSeguro(TextEditingController controller) {
 }
 
 bool esPeticionDeCambio(String texto) => RegExp(
-  r'\b(cambia\w*|modifica\w*|corr[íi][jg]\w*|correg\w*|actualiza\w*|reemplaza\w*|agrega\w*|añade\w*|arregla\w*|aplica\w*|pon\w*|quita\w*|remueve\w*|elimina\w*|ya no quiero|solo con|sin input|valores fijos|fij[oa]s?|haz que|deja de|sustituye\w*)\b',
+  r'\b(cambia\w*|modifica\w*|corr[íi][jg]\w*|correg\w*|correcci[oó]n\w*|soluciona\w*|repara\w*|no funciona|no corrige|me da error|sale error|actualiza\w*|reemplaza\w*|agrega\w*|añade\w*|arregla\w*|aplica\w*|pon\w*|quita\w*|remueve\w*|elimina\w*|ya no quiero|solo con|sin input|valores fijos|fij[oa]s?|haz que|deja de|sustituye\w*)\b',
   caseSensitive: false,
 ).hasMatch(texto);
 

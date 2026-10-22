@@ -97,8 +97,28 @@ async def actual(u: Actual, db: DB):
     return dict(asignado=True, fase=fase, condicion=asignacion.condicion,
                 abierto=cfg.get(fase + '_abierto', False), practica_guiada=cfg['practica_guiada'],
                 entrega=serializar(entrega) if entrega else None,
-                tareas=[dict(id=p['id'], modulo=p['modulo'], consigna=p['practica']) for p in BANCO]
-                if fase == 'intervencion' else [])
+                tareas=(await tareas_practica(u, db))['tareas'] if fase == 'intervencion' else [])
+
+
+@router.get('/tareas')
+async def tareas_practica(u: Actual, db: DB):
+    cfg = await configuracion(db)
+    a = await db.get(AsignacionEstudio, u.id)
+    if u.rol == RolUsuario.ESTUDIANTE:
+        if a and a.fase != 'intervencion' or not a and cfg['estudio_activo']:
+            raise HTTPException(403, 'Las tareas de práctica se habilitan durante la intervención.')
+    ids = cfg['preguntas_activas']
+    if a:
+        pre = await db.scalar(select(EntregaEstudio).where(EntregaEstudio.usuario_id == u.id, EntregaEstudio.fase == 'pre'))
+        if pre:
+            ids = [p['id'] for p in pre.preguntas]
+    return dict(tareas=[dict(id=p['id'], modulo=p['modulo'], competencia=p['competencia'],
+                            consigna=p['practica'], solicitud=reemplazar_peticion(p['practica']))
+                        for p in BANCO if p['id'] in ids])
+
+
+def reemplazar_peticion(consigna):
+    return 'Crea ' + consigna.removeprefix('Pide al asistente ').removeprefix('Pide ')
 
 
 @router.get('/docente/vista-previa/{fase}')

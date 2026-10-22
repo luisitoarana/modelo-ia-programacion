@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../lib/api.dart';
 import '../lib/models.dart';
@@ -13,10 +14,24 @@ import '../lib/widgets/code_view.dart';
 class _ApiEditor extends ApiClient {
   final ids = <String>[];
   final preguntas = <String>[];
+  final modos = <String?>[];
   int conversaciones = 0;
   bool falla = false;
   String respuesta = '```python\nprint(2)\n```';
   Completer<void>? espera;
+
+  @override
+  Future<Map<String, dynamic>> tareasEstudio() async => {
+    'tareas': [
+      {
+        'id': 'm1_1',
+        'modulo': 1,
+        'competencia': 'Variables',
+        'consigna': 'Pide código para mostrar una edad.',
+        'solicitud': 'Crea código para mostrar una edad.',
+      },
+    ],
+  };
 
   @override
   Future<String> crearConversacion(String titulo) async {
@@ -40,6 +55,7 @@ class _ApiEditor extends ApiClient {
     String? nivelModulo,
   }) async {
     ids.add(convId);
+    modos.add(modoAcompanamiento);
     preguntas.add(contenido);
     if (falla) {
       falla = false;
@@ -59,14 +75,21 @@ class _ApiEditor extends ApiClient {
   }
 }
 
-Future<void> _montar(WidgetTester tester, _ApiEditor api) async {
+Future<void> _montar(
+  WidgetTester tester,
+  _ApiEditor api, {
+  bool soloCodigo = false,
+}) async {
+  SharedPreferences.setMockInitialValues({});
+  final settings = SettingsProvider();
+  if (soloCodigo) await settings.setModoAcompanamiento('sin_acompanamiento');
   await tester.binding.setSurfaceSize(const Size(1500, 950));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider(api)),
-        ChangeNotifierProvider(create: (_) => SettingsProvider()),
+        ChangeNotifierProvider(create: (_) => settings),
       ],
       child: MaterialApp(
         theme: AppTheme.light(),
@@ -101,6 +124,33 @@ String _codigo(WidgetTester tester) => tester
     .text;
 
 void main() {
+  testWidgets(
+    'solo código: genera desde una tarea y aplica correcciones sucesivas en el mismo archivo',
+    (tester) async {
+      final api = _ApiEditor();
+      await _montar(tester, api, soloCodigo: true);
+      await _nuevo(tester, 'inicial.py');
+      await tester.ensureVisible(find.text('Práctica: generar código'));
+      await tester.tap(find.text('Práctica: generar código'));
+      await tester.pumpAndSettle();
+      expect(find.text('Copiar consigna'), findsOneWidget);
+      await tester.tap(find.text('Generar código'));
+      await tester.pumpAndSettle();
+      expect(_codigo(tester), 'print(2)');
+      api.respuesta = '```python\nprint(3)\n```';
+      await _enviar(tester, 'Genera la corrección, no funciona');
+      expect(_codigo(tester), 'print(3)');
+      expect(api.preguntas.last, contains('Código actual en el editor'));
+      expect(api.preguntas.last, contains('print(2)'));
+      api.respuesta = '```python\nprint(4)\n```';
+      await _enviar(tester, 'Me da error, repara el archivo');
+      expect(_codigo(tester), 'print(4)');
+      expect(api.modos.toSet(), {'sin_acompanamiento'});
+      expect(api.conversaciones, 1);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
   testWidgets(
     'corrige con cursor -1, conserva conversación y recupera un fallo',
     (tester) async {

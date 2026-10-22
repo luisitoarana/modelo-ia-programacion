@@ -45,6 +45,16 @@ Desde app-desktop: `flutter test` y `flutter build windows --debug`. Las pruebas
 
 ## Límites y siguientes pasos
 
+### Correcciones de generación directa y práctica común
+
+Nueva comprobación: **42 pruebas backend y 26 pruebas Flutter aprobadas**. Se añadió una prueba de interfaz que elige una tarea en modo Solo código, genera un archivo y aplica dos correcciones consecutivas con el mismo identificador de conversación. Las pruebas HTTP comprueban que las tareas corresponden a las competencias del pretest y se bloquean durante pre/post; no incluyen soluciones ni pistas para el grupo directo.
+
+Se corrigió la clasificación de «genera la corrección» y «no funciona», que podía perder el contexto o impedir aplicar una corrección. La generación directa comprueba una única solución Python y algunos nombres importados de bibliotecas básicas, con un solo intento de reparación y sin ejecutar el programa del alumno en ese proceso de validación.
+
+Prueba real con el motor local, ejecutando las propuestas en el sandbox: una función promedio fallaba por división entre cero con una lista vacía. La corrección debía conservar la función, devolver 0 para `[]` y 3 para `[2, 4]`; en el siguiente turno debía mantener ese comportamiento y devolver 1.67 para `[1, 2, 2]`. Ambas correcciones finales pasaron sus aserciones y la respuesta contenía solo código. En la comprobación inicial se detectó una importación inexistente (`round` desde `math`), cubierta ahora por una regresión y por el intento de reparación.
+
+La prueba real del explicador también detectó una modificación no solicitada: el modelo reemplazaba una edad fija por una entrada de teclado. Se añadió un respaldo estructural que conserva el código original si se pidió únicamente explicar y lo identifica en pantalla. La nueva prueba confirmó que edad=20 se describe como entero, conserva los literales originales y formula una pregunta sobre una variable real. Las predicciones y razonamientos del estudiante se incluyen en la petición de explicación; no se califican automáticamente. Estos resultados documentan los casos comprobados, no garantizan respuestas correctas para cualquier código ni equivalen a evidencia de aprendizaje.
+
 ### Corrección de acceso docente y demostración aislada
 
 Se corrigió el selector que permitía persistir el bloqueo Post-Test en una cuenta administradora. El escritorio mantiene disponibles los controles docentes y permite abrir vistas previas de pretest y postest desde Administración o desde el selector superior. Las vistas previas funcionan con las evaluaciones cerradas, permiten escribir y simular la entrega, y no crean registros de participantes ni alteran resultados. La API de vista previa exige rol administrador/investigador; la entrega real continúa reservada a estudiantes.

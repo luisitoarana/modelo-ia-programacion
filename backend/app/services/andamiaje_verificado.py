@@ -3,6 +3,38 @@ import ast
 import re
 
 
+def explicar_sin_cambiar(codigo: str) -> str:
+    """Respaldo estático cuando el modelo modifica un ejemplo que debía explicar.
+
+    Describe las instrucciones visibles; no ejecuta ni inventa resultados.
+    """
+    arbol = ast.parse(codigo)
+    pasos = []
+    tipos = {str: 'str (texto)', int: 'int (entero)', float: 'float (decimal)', bool: 'bool (booleano)'}
+    for nodo in arbol.body:
+        if isinstance(nodo, ast.Assign):
+            destino = ', '.join(ast.unparse(t) for t in nodo.targets)
+            valor = ast.unparse(nodo.value)
+            tipo = tipos.get(type(nodo.value.value)) if isinstance(nodo.value, ast.Constant) else None
+            pasos.append(f'`{destino}` recibe `{valor}`' + (f', de tipo {tipo}.' if tipo else '. Primero se calcula la expresión de la derecha y después se asigna el resultado.'))
+        elif isinstance(nodo, ast.Expr) and isinstance(nodo.value, ast.Call) and isinstance(nodo.value.func, ast.Name) and nodo.value.func.id == 'print':
+            pasos.append('`print` muestra los valores de ' + ', '.join(f'`{ast.unparse(a)}`' for a in nodo.value.args) + ' en ese punto del programa. Mostrar un dato no cambia su tipo ni su valor.')
+        elif isinstance(nodo, ast.If):
+            pasos.append(f'`if` comprueba `{ast.unparse(nodo.test)}`. Si es verdadera ejecuta su bloque; si es falsa pasa al bloque alternativo, cuando existe. Revisa el operador y prueba un dato a cada lado de la frontera.')
+        elif isinstance(nodo, ast.For):
+            pasos.append(f'`for` recorre `{ast.unparse(nodo.iter)}` asignando cada elemento a `{ast.unparse(nodo.target)}` y ejecuta el cuerpo una vez por elemento. Si la colección está vacía, el cuerpo no se ejecuta.')
+        elif isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            args = ', '.join(a.arg for a in nodo.args.args)
+            pasos.append(f'`{nodo.name}({args})` define una función. Sus parámetros reciben los argumentos al llamarla. `return` devuelve un valor a quien la llama; `print` lo muestra. Definir la función no ejecuta su cuerpo.')
+        else:
+            pasos.append(f'Revisa la instrucción `{ast.unparse(nodo)}` en el orden en que aparece; identifica qué datos utiliza y qué cambia antes de la siguiente instrucción.')
+    return ('**Explicación basada en el código original**\n'
+            'La propuesta del modelo cambiaba el ejemplo; se conserva tu código y se describen sus instrucciones sin ejecutarlo.\n\n'
+            '```python\n' + codigo.strip() + '\n```\n\n'
+            + '\n'.join(f'{i}. {p}' for i, p in enumerate(pasos, 1))
+            + '\n\nContrasta tu predicción con estos pasos. Cambia un dato y explica qué salida esperas antes de ejecutarlo; una respuesta breve es suficiente.')
+
+
 def completar(texto: str, codigo: str) -> str:
     arbol = ast.parse(codigo)
     pregunta = None

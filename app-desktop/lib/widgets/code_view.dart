@@ -19,6 +19,7 @@ import 'code/code_models.dart';
 import 'code/divisores.dart';
 import 'code/diff_modal.dart';
 import 'terminal_view.dart';
+import 'tareas_estudio.dart';
 
 /// Vista "Code" v2 — Editor estilo VS Code / Cursor con:
 ///
@@ -1170,7 +1171,7 @@ class _CodeViewState extends State<CodeView> {
     if (_iaCambioPendiente && esConfirmacionDeCambio(textoLimpio)) {
       buffer.writeln('Aplica la corrección que propusiste en el turno anterior al archivo actual. Devuelve el archivo completo.');
     }
-    final esNuevaCreacion = RegExp(r'\b(crea|crear|haz|hacer|desarrolla|desarrollar|construye|construir|genera|generar|nueva?|nuevo)\b', caseSensitive: false).hasMatch(textoLimpio) &&
+    final esNuevaCreacion = !pideCambio && RegExp(r'\b(crea|crear|haz|hacer|desarrolla|desarrollar|construye|construir|genera|generar|nueva?|nuevo)\b', caseSensitive: false).hasMatch(textoLimpio) &&
         !RegExp(r'\b(en este archivo|a este archivo|en esta funci[oó]n|agrega|a[ñn]ade|este c[oó]digo|el c[oó]digo actual)\b', caseSensitive: false).hasMatch(textoLimpio);
 
     if (t != null && !esNuevaCreacion) {
@@ -2543,6 +2544,15 @@ class _CodeViewState extends State<CodeView> {
                 );
               },
             ),
+            const SizedBox(width: 6),
+            _btnSec(p, Icons.assignment_outlined,
+              settings.esSinAcompanamiento ? 'Práctica: generar código' : 'Práctica con andamiaje',
+              const Color(0xFF38BDF8), !settings.esBloqueadoPostTest && !_iaCargando,
+              'Tareas comunes del estudio: copiar la consigna o trabajar con la IA', () async {
+                final tarea = await elegirTareaEstudio(context, generar: settings.esSinAcompanamiento);
+                if (tarea == null || !mounted) return;
+                await _consultarIa(tarea['solicitud'] as String);
+              }),
             const SizedBox(width: 6),
             // Retos y Módulos Curriculares
             _btnSec(

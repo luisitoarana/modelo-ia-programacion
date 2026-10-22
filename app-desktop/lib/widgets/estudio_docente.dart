@@ -189,6 +189,13 @@ class _EstudioDocenteState extends State<EstudioDocente> {
                 ],
                 onChanged: (v) => cambiar(() => fase = v!),
               ),
+              const SizedBox(height: 12),
+              const SizedBox(
+                width: 440,
+                child: Text(
+                  'Orden: pretest → intervención → postest. El pretest debe estar entregado para avanzar. El grupo se conserva después de iniciar las evaluaciones. Abrir un test habilita entregas; no cambia por sí solo la fase de los estudiantes.',
+                ),
+              ),
             ],
           ),
           actions: [
@@ -460,6 +467,17 @@ class _EstudioDocenteState extends State<EstudioDocente> {
             : ListView(
                 padding: const EdgeInsets.all(20),
                 children: [
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Text(
+                        '1. Activa el estudio, abre el pretest y asigna a cada estudiante su grupo y fase Pretest.\n'
+                        '2. Tras la entrega del pretest, cambia su fase a Intervención: andamiaje o generación directa según su grupo. Las tareas practican las mismas competencias con datos diferentes.\n'
+                        '3. Cuando termine la práctica, abre el postest y cambia su fase a Postest. Ambos tests se responden sin IA.\n'
+                        '4. Revisa las entregas con la rúbrica y exporta los resultados. El selector superior de tu cuenta solo cambia tu exploración local; los grupos de estudiantes se asignan aquí.',
+                      ),
+                    ),
+                  ),
                   const Text(
                     'Instrumento piloto para revisión del profesor. Seis tareas: dos por módulo. Las preguntas abiertas son equivalentes en competencia, todavía no validadas en dificultad.',
                   ),

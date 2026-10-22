@@ -14,6 +14,10 @@ La variable de intervención es el **andamiaje explicativo**. Ambos grupos utili
 
 El postest se **resuelve por el estudiante**, no se encarga al agente. Si el agente lo resolviera, se mediría su rendimiento en lugar del aprendizaje independiente. Los formularios pre y post tienen el mismo tipo de respuesta: escribir código y explicar brevemente. Cambiar únicamente de lectura de código en pre a producción en post introduciría otra diferencia difícil de separar del aprendizaje.
 
+Las tareas comunes están accesibles desde el editor mediante botones para copiar la consigna o enviarla al asistente. En el explicador, el grupo con andamiaje puede seleccionar una tarea, escribir o pegar un intento, registrar su predicción y razonamiento y solicitar explicación. Las mismas competencias se trabajan con datos distintos; no se enseña una respuesta del postest para memorizarla. La práctica de un alumno mantiene las competencias de su pretest aunque después se cambie la selección global. Durante pre y post se bloquea también el acceso a estas tareas.
+
+La explicación tiene controles estructurales: cuando se pidió solo explicar y el modelo altera el programa, puede intervenir un respaldo estático identificado en pantalla. La condición directa incluye comprobaciones de sintaxis y de ciertas importaciones estándar, con un máximo de una reparación. Estas ayudas de implementación forman parte del sistema que se evalúa; deben declararse y mantenerse estables durante el ensayo. No constituyen una validación general del modelo ni permiten asegurar ausencia de errores.
+
 ```mermaid
 flowchart LR
  P[Pretest común sin ayuda] --> A[Intervención con andamiaje]

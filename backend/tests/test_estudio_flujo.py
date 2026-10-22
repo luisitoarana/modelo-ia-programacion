@@ -75,6 +75,7 @@ async def test_pre_intervencion_post_ambos_grupos_y_revision(prueba):
     pretests = {}
     for nombre, grupo in [('directo','sin_acompanamiento'), ('andamiaje','con_acompanamiento')]:
         h, uid = usuarios[nombre]
+        assert (await c.get('/api/v1/estudio/tareas', headers=h)).status_code == 403
         assert (await c.put('/api/v1/estudio/configuracion', headers=h, json=cfg)).status_code == 403
         assert (await c.put(f'/api/v1/aprendizaje/asignaciones/{uid}', headers=profesor,
                             json={'fase':'pre','condicion':grupo})).status_code == 200
@@ -108,6 +109,11 @@ async def test_pre_intervencion_post_ambos_grupos_y_revision(prueba):
                             json={'fase':'intervencion','condicion':grupo})).status_code == 200
         datos = (await c.get('/api/v1/estudio/actual', headers=h)).json()
         assert len(datos['tareas']) == 6
+        tareas = (await c.get('/api/v1/estudio/tareas', headers=h)).json()['tareas']
+        assert tareas == datos['tareas']
+        assert [t['id'] for t in tareas] == [p['id'] for p in BANCO]
+        assert all(t['solicitud'].startswith('Crea ') for t in tareas)
+        assert all('pistas' not in t and 'solucion' not in t for t in tareas)
         modulos = await c.get('/api/v1/curriculo/modulos', headers=h)
         assert modulos.status_code == (403 if nombre=='directo' else 200)
     assert pretests['directo']['preguntas'] == pretests['andamiaje']['preguntas']
@@ -119,6 +125,7 @@ async def test_pre_intervencion_post_ambos_grupos_y_revision(prueba):
         assert (await c.put(f'/api/v1/aprendizaje/asignaciones/{uid}', headers=profesor,
                             json={'fase':'post','condicion':grupo})).status_code == 200
         post = (await c.post('/api/v1/estudio/iniciar', headers=h, json={})).json()
+        assert (await c.get('/api/v1/estudio/tareas', headers=h)).status_code == 403
         assert (await c.put(f"/api/v1/estudio/entregas/{pretests[nombre]['id']}", headers=h,
                             json={'respuestas':{},'revision':pretests[nombre]['revision'],'finalizar':True})).status_code == 403
         assert (await c.put(f'/api/v1/aprendizaje/asignaciones/{uid}', headers=profesor,
