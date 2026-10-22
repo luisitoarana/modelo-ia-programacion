@@ -17,6 +17,11 @@ class LeccionCurricular {
   final IconData icono;
 
   List<String> get pistasAndamiaje => pistas;
+  String get consignaDirecta {
+    final instrucciones = RegExp(r'^#\s*\d+[.)]\s*(.+)$', multiLine: true)
+        .allMatches(codigoInicial).map((m) => m.group(1)!).toList();
+    return instrucciones.isEmpty ? descripcionPedagogica : instrucciones.join('\n');
+  }
 
   const LeccionCurricular({
     required this.id,

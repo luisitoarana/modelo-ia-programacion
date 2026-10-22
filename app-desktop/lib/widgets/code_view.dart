@@ -19,7 +19,6 @@ import 'code/code_models.dart';
 import 'code/divisores.dart';
 import 'code/diff_modal.dart';
 import 'terminal_view.dart';
-import 'tareas_estudio.dart';
 
 /// Vista "Code" v2 — Editor estilo VS Code / Cursor con:
 ///
@@ -80,6 +79,7 @@ class _CodeViewState extends State<CodeView> {
   // GlobalKey para acceder al State de la TerminalView embebida (para
   // sincronizar su CWD con el archivo activo y ejecutar comandos interactivos).
   final GlobalKey<TerminalViewState> _terminalKey = GlobalKey();
+  TabArchivo? _archivoEnTerminal;
 
   // Panel IA Lateral estilo Cursor / Antigravity / GLM (Split View)
   bool _panelIaLateral = true;
@@ -161,11 +161,21 @@ class _CodeViewState extends State<CodeView> {
 
   void _ejecutarEnTerminalInteractiva([String? comandoPersonalizado]) {
     final t = _tabActiva;
-    setState(() => _panelActivo = PanelInferior.terminal);
+    _archivoEnTerminal = t;
+    if (context.read<SettingsProvider>().esBloqueadoPostTest) return;
+    setState(() {
+      _panelActivo = PanelInferior.terminal;
+      _output = null;
+      _problemas.clear();
+    });
     final nombreArchivo = t?.nombre ?? 'main.py';
     final cmd = comandoPersonalizado ?? 'python "$nombreArchivo"';
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _terminalKey.currentState?.ejecutarComando(cmd);
+      if (comandoPersonalizado == null && t?.lenguaje == 'python') {
+        _terminalKey.currentState?.ejecutarCodigoPython(t!.contenido);
+      } else {
+        _terminalKey.currentState?.ejecutarComando(cmd);
+      }
     });
   }
 
@@ -843,7 +853,7 @@ class _CodeViewState extends State<CodeView> {
   }
 
   void _mostrarDialogoRetosCurriculares(BuildContext context, AppPalette p, SettingsProvider settings) {
-    if (!settings.esConAcompanamiento) return;
+    if (settings.esBloqueadoPostTest) return;
     String nivelSeleccionado = settings.nivelModulo;
 
     showDialog(
@@ -866,7 +876,7 @@ class _CodeViewState extends State<CodeView> {
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: p.text),
                       ),
                       Text(
-                        'Ejercicios prácticos con andamiaje pedagógico y evaluación',
+                        settings.esSinAcompanamiento ? 'Las mismas consignas de los módulos: genera y corrige código sin pistas.' : 'Retos de los módulos con acompañamiento explicativo',
                         style: TextStyle(fontSize: 11.5, color: p.subtle),
                       ),
                     ],
@@ -957,30 +967,36 @@ class _CodeViewState extends State<CodeView> {
                                         style: TextStyle(fontSize: 10, color: AppColors.success, fontWeight: FontWeight.bold),
                                       ),
                                     ),
+                                  if (settings.esSinAcompanamiento)
+                                    TextButton(onPressed: () => Clipboard.setData(ClipboardData(text: lec.consignaDirecta)), child: const Text('Copiar consigna')),
                                   FilledButton.tonalIcon(
                                     onPressed: () {
                                       Navigator.pop(ctx);
                                       if (settings.nivelModulo != nivelSeleccionado) {
                                         settings.setNivelModulo(nivelSeleccionado);
                                       }
-                                      _cargarRetoCurricular(lec, p);
+                                      if (settings.esSinAcompanamiento) {
+                                        _consultarIa('Crea un programa Python completo para este reto: ${lec.titulo}.\n${lec.consignaDirecta}');
+                                      } else {
+                                        _cargarRetoCurricular(lec, p);
+                                      }
                                     },
                                     style: FilledButton.styleFrom(
                                       visualDensity: VisualDensity.compact,
                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                     ),
                                     icon: Icon(estaAbierto ? Icons.open_in_new_rounded : Icons.code_rounded, size: 14),
-                                    label: Text(estaAbierto ? 'Ver en Editor' : 'Cargar Reto', style: const TextStyle(fontSize: 11.5)),
+                                    label: Text(settings.esSinAcompanamiento ? 'Generar código' : estaAbierto ? 'Ver en Editor' : 'Cargar Reto', style: const TextStyle(fontSize: 11.5)),
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 6),
                               Text(
-                                lec.descripcionPedagogica,
+                                settings.esSinAcompanamiento ? lec.consignaDirecta : lec.descripcionPedagogica,
                                 style: TextStyle(fontSize: 11.5, color: p.muted, height: 1.3),
                               ),
                               const SizedBox(height: 6),
-                              Row(
+                              if (settings.esConAcompanamiento) Row(
                                 children: [
                                   Icon(Icons.school_outlined, size: 12, color: p.subtle),
                                   const SizedBox(width: 4),
@@ -1053,6 +1069,10 @@ class _CodeViewState extends State<CodeView> {
   Future<void> _ejecutar() async {
     final t = _tabActiva;
     if (t == null || _ejecutando) return;
+    if (t.lenguaje == 'python' && RegExp(r'\binput\s*\(').hasMatch(t.contenido)) {
+      _ejecutarEnTerminalInteractiva();
+      return;
+    }
     final ejecutable = lenguajeEjecutable(t.lenguaje);
     if (ejecutable == null) {
       if (mounted) {
@@ -2545,22 +2565,13 @@ class _CodeViewState extends State<CodeView> {
               },
             ),
             const SizedBox(width: 6),
-            _btnSec(p, Icons.assignment_outlined,
-              settings.esSinAcompanamiento ? 'Práctica: generar código' : 'Práctica con andamiaje',
-              const Color(0xFF38BDF8), !settings.esBloqueadoPostTest && !_iaCargando,
-              'Tareas comunes del estudio: copiar la consigna o trabajar con la IA', () async {
-                final tarea = await elegirTareaEstudio(context, generar: settings.esSinAcompanamiento);
-                if (tarea == null || !mounted) return;
-                await _consultarIa(tarea['solicitud'] as String);
-              }),
-            const SizedBox(width: 6),
             // Retos y Módulos Curriculares
             _btnSec(
               p,
               Icons.school_outlined,
               'Retos Curriculares',
               const Color(0xFF38BDF8),
-              settings.esConAcompanamiento,
+              !settings.esBloqueadoPostTest,
               'Explorar retos prácticos del currículo (${CurriculumCatalog.nombreNivel(settings.nivelModulo)})',
               () => _mostrarDialogoRetosCurriculares(context, p, settings),
             ),
@@ -2956,22 +2967,9 @@ class _CodeViewState extends State<CodeView> {
                       const SizedBox(width: 8),
                       const Expanded(
                         child: Text(
-                          'Tu programa solicita entrada por teclado (input()). Puedes ejecutar con valores de prueba o interactuar en la terminal.',
+                          'Tu programa necesita datos escritos por ti. Abre la terminal, escribe cada respuesta y pulsa Enter.',
                           style: TextStyle(fontSize: 11.5),
                         ),
-                      ),
-                      TextButton.icon(
-                        style: TextButton.styleFrom(
-                          foregroundColor: p.primary,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        icon: const Icon(Icons.auto_fix_high_rounded, size: 14),
-                        label: const Text('Usar valores de prueba', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                        onPressed: () {
-                          _consultarIa(
-                            'Reemplaza las llamadas input() del archivo actual por variables fijas con números de prueba (ej: numero1 = 10, numero2 = 5) para ejecutar directamente sin consola. Devuelve el código completo actualizado.',
-                          );
-                        },
                       ),
                       const SizedBox(width: 4),
                       TextButton.icon(
@@ -3014,6 +3012,15 @@ class _CodeViewState extends State<CodeView> {
           onIrASalida: () => setState(() => _panelActivo = PanelInferior.output),
           onIrAProblemas: () => setState(() => _panelActivo = PanelInferior.problemas),
           contadorProblemas: _problemas.length,
+          onCorregirError: (error) {
+            final indice = _archivoEnTerminal == null ? -1 : _tabs.indexOf(_archivoEnTerminal!);
+            if (indice < 0) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Abre de nuevo el archivo que produjo este error.')));
+              return;
+            }
+            setState(() => _activa = indice);
+            _consultarIa('Corrige el error del archivo actual conservando la entrada por teclado cuando exista.\nError de la terminal:\n$error');
+          },
         );
       case PanelInferior.problemas:
         if (_problemas.isEmpty) {
@@ -3099,7 +3106,7 @@ class _CodeViewState extends State<CodeView> {
                     InkWell(
                       onTap: () {
                         final instruccion = esEof
-                            ? 'Corrige el error en el archivo actual: ocurrió un EOFError porque input() no tiene terminal interactiva. Reemplaza los input() por variables directas con valores numéricos de ejemplo para que el programa se ejecute directamente con éxito sin pedir entrada por consola. Devuelve el código completo actualizado.'
+                            ? 'Revisa el código actual conservando las llamadas input(). La entrada se recibe en la terminal; no la sustituyas por números inventados. Corrige únicamente los errores reales y devuelve el archivo completo.'
                             : 'Corrige este error en el archivo actual y explica brevemente el cambio. Devuelve el código completo funcional:\n`$prob`';
                         _consultarIa(instruccion);
                       },

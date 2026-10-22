@@ -86,6 +86,10 @@ class _HomeScreenState extends State<HomeScreen> {
           if (anterior != datos['fase']) {
             if (datos['fase'] == 'pre') _vista = VistaPrincipal.explicar;
             if (datos['fase'] == 'post') _vista = VistaPrincipal.code;
+            if (datos['fase'] == 'intervencion') {
+              _vista = datos['modo_efectivo'] == 'sin_acompanamiento'
+                  ? VistaPrincipal.code : VistaPrincipal.explicar;
+            }
           }
         });
       }
@@ -230,7 +234,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           : context.watch<AuthProvider>().usuario?.esInvestigador != true && context.watch<SettingsProvider>().esBloqueadoPostTest
                           ? EvaluacionEstudio(key: ValueKey(context.watch<SettingsProvider>().faseEstudio))
                           : Column(children: [
-                            if (context.watch<SettingsProvider>().faseEstudio == 'intervencion') const TareasIntervencion(),
                             if (context.watch<AuthProvider>().usuario?.esInvestigador == true)
                               TextButton.icon(onPressed: () => abrirEstudioDocente(context), icon: const Icon(Icons.science_outlined), label: const Text('Pretest, postest y revisión docente')),
                             Expanded(child: IndexedStack(

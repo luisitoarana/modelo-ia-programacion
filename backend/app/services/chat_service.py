@@ -71,7 +71,7 @@ def _peticion_actual(texto: str) -> str:
     return match.group(1).strip() if match else texto.strip()
 
 
-def _codigo_directo(texto: str, codigo: str | None) -> str:
+def _codigo_directo(texto: str, codigo: str | None, peticion: str = '') -> str:
     """Una sola solución completa; comentarios didácticos fuera de la condición directa."""
     import ast
     bloques = re.findall(r'```(?:python|py)?\s*\n(.*?)```', texto, re.S)
@@ -80,6 +80,21 @@ def _codigo_directo(texto: str, codigo: str | None) -> str:
     arbol = ast.parse(bloques[0] if bloques else codigo or texto)
     if not arbol.body:
         raise ValueError('El archivo de respuesta está vacío.')
+    usados = {n.id for n in ast.walk(arbol) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.Assign) and any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == 'input' for n in ast.walk(nodo.value)):
+            for destino in nodo.targets:
+                if isinstance(destino, ast.Name) and destino.id not in usados and re.search(
+                    r'\b(?:muestra|imprime|mostrar|imprimir)\b[^.\n]{0,100}\b' + re.escape(destino.id) + r'\b', peticion, re.I):
+                    if nodo in arbol.body:
+                        # Completar una salida expresamente pedida y omitida por
+                        # el modelo, solo para asignaciones de ámbito principal.
+                        # No inventar datos: se imprime la entrada del usuario.
+                        arbol.body.insert(arbol.body.index(nodo) + 1,
+                            ast.Expr(value=ast.Call(func=ast.Name(id='print', ctx=ast.Load()),
+                                args=[ast.Name(id=destino.id, ctx=ast.Load())], keywords=[])))
+                    else:
+                        raise ValueError(f'Se pidió mostrar {destino.id}, pero se solicita con input y nunca se utiliza. Incluye en la salida todos los datos solicitados.')
     # Verificar nombres de módulos básicos conocidos sin importar ni ejecutar
     # dependencias propuestas por el modelo, ni consultar servicios externos.
     import math, statistics, string, collections, itertools, functools, operator
@@ -516,7 +531,7 @@ class ChatService:
                                 pass
                         if modo_acomp == 'sin_acompanamiento':
                             try:
-                                respuesta_local = _codigo_directo(r_local.texto, r_local.codigo)
+                                respuesta_local = _codigo_directo(r_local.texto, r_local.codigo, _peticion_actual(texto_usuario))
                             except (SyntaxError, ValueError) as error:
                                 # Un solo intento de reparación, con el mismo motor y condición.
                                 # No ejecutar código del modelo en el servidor para validarlo.
@@ -531,7 +546,7 @@ class ChatService:
                                 try:
                                     if not reparada or not reparada.texto:
                                         raise ValueError('Respuesta vacía')
-                                    respuesta_local = _codigo_directo(reparada.texto, reparada.codigo)
+                                    respuesta_local = _codigo_directo(reparada.texto, reparada.codigo, _peticion_actual(texto_usuario))
                                 except (SyntaxError, ValueError):
                                     return 'No se pudo obtener una corrección Python válida. El archivo se conserva; vuelve a intentarlo.', {
                                         'origen': 'error_generacion_directa', 'tokens': r_local.tokens_generados, 'latencia': r_local.latencia_segundos,

@@ -45,6 +45,18 @@ Desde app-desktop: `flutter test` y `flutter build windows --debug`. Las pruebas
 
 ## Límites y siguientes pasos
 
+### Corrección posterior: entrada real y uso de los módulos existentes
+
+Esta corrección sustituye la interfaz de práctica añadida en la entrega anterior. Se retiraron el catálogo adicional y su barra de tareas. El recorrido formativo vuelve a ser el de los módulos y Retos Curriculares existentes: el explicador conserva sus preguntas y acompañamiento; en Solo código los mismos retos ofrecen copiar la consigna o generar código, sin pistas ni guía docente. No se cambiaron las consignas ya congeladas en las entregas ni se borraron cuentas o respuestas.
+
+Se detectaron dos causas de la falta de entrada por teclado: el sandbox suministraba números automáticos y la terminal ocultaba el campo de escritura mientras esperaba la terminación del comando. Se retiraron las entradas inventadas. El editor deriva `input()` a un proceso Python local con stdin abierto y salida en vivo, ejecutando una copia temporal de la pestaña sin exigir guardarla. El usuario introduce cada respuesta y puede detener el proceso. Los errores permiten pedir una corrección en el mismo chat y sobre la pestaña que se ejecutó. La ejecución interactiva requiere Python en el equipo del estudiante; no es una consola remota del backend.
+
+El sandbox sigue siendo no interactivo: recibe únicamente el `stdin_texto` explícito del cliente y, si falta, devuelve el error real. La codificación de entrada/salida se fijó en UTF-8. Se comprobaron con Python real el prompt previo a la entrada, dos respuestas sucesivas con un nombre acentuado, el resultado calculado, una entrada vacía y la detención de un proceso que esperaba datos. También se comprobó que el sandbox no fabrica datos.
+
+Una prueba con el motor local detectó que pedía un nombre y luego omitía mostrarlo. Se añadió un ajuste estructural limitado: si una variable recibida con input en el ámbito principal queda sin usar y la petición exige expresamente mostrarla, el verificador añade su impresión usando el dato recibido, sin inventar valores. La prueba posterior del sistema pasó con nombre Lucía, edad 21 y salida con el nombre y 22. Esta reparación es parte del sistema, no una afirmación de que el modelo por sí solo siempre siga todas las instrucciones.
+
+En Administración, Guardar cambios está visible junto a las vistas previas, se indican los cambios pendientes y cada participante muestra su estado de pretest y postest. Las vistas previas abren directamente las preguntas. Las pruebas de control y persistencia de fases se realizaron con bases aisladas. Resultado de esta revisión: **45 pruebas backend y 28 pruebas Flutter aprobadas**, y compilación Windows correcta. Las comprobaciones de interfaz fueron automatizadas; no se declara una sesión manual completa sobre la ventana del usuario.
+
 ### Correcciones de generación directa y práctica común
 
 Nueva comprobación: **42 pruebas backend y 26 pruebas Flutter aprobadas**. Se añadió una prueba de interfaz que elige una tarea en modo Solo código, genera un archivo y aplica dos correcciones consecutivas con el mismo identificador de conversación. Las pruebas HTTP comprueban que las tareas corresponden a las competencias del pretest y se bloquean durante pre/post; no incluyen soluciones ni pistas para el grupo directo.

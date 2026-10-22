@@ -519,11 +519,13 @@ class ApiClient {
     String codigo, {
     int timeout = 10,
     String lenguaje = 'python',
+    String? stdinTexto,
   }) async {
     final data = await _post('/herramientas/ejecutar-python', {
       'codigo': codigo,
       'timeout': timeout,
       'lenguaje': lenguaje,
+      if (stdinTexto != null) 'stdin_texto': stdinTexto,
     });
     return data as Map<String, dynamic>;
   }

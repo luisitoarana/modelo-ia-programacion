@@ -96,6 +96,13 @@ class _EvaluacionEstudioState extends State<EvaluacionEstudio> {
         _estado = estado;
         if (widget.vistaPrevia == null) {
           _adoptar((estado['entrega'] as Map?)?.cast<String, dynamic>());
+        } else if (_entrega == null) {
+          _adoptar({
+            'id': 'vista-previa', 'fase': widget.vistaPrevia,
+            'version': estado['version'], 'estado': 'borrador', 'revision': 1,
+            'iniciada_en': DateTime.now().toIso8601String(),
+            'preguntas': estado['preguntas'], 'respuestas': <String, dynamic>{},
+          });
         }
       });
     } catch (e) {

@@ -13,69 +13,6 @@ Future<void> abrirEstudioDocente(BuildContext context) => showDialog<void>(
   ),
 );
 
-class TareasIntervencion extends StatefulWidget {
-  const TareasIntervencion({super.key});
-  @override
-  State<TareasIntervencion> createState() => _TareasIntervencionState();
-}
-
-class _TareasIntervencionState extends State<TareasIntervencion> {
-  Future<void> _ver() async {
-    try {
-      final datos = await context.read<AuthProvider>().api.estudioActual();
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Tareas comunes de intervención'),
-          content: SizedBox(
-            width: 650,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Ambos grupos trabajan estas tareas con el mismo motor. En generación directa se entrega código; con andamiaje puedes pedir explicaciones y razonar sobre los cambios.',
-                  ),
-                  for (final t in datos['tareas'] as List? ?? [])
-                    ListTile(
-                      title: Text('Módulo ${t['modulo']}'),
-                      subtitle: SelectableText(t['consigna'] as String),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Volver al trabajo'),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-    child: ListTile(
-      dense: true,
-      title: const Text('Intervención · tareas comunes de los tres módulos'),
-      trailing: OutlinedButton(
-        onPressed: _ver,
-        child: const Text('Ver tareas'),
-      ),
-    ),
-  );
-}
-
 class EstudioDocente extends StatefulWidget {
   const EstudioDocente({super.key});
   @override
@@ -85,6 +22,7 @@ class EstudioDocente extends StatefulWidget {
 class _EstudioDocenteState extends State<EstudioDocente> {
   Map<String, dynamic>? _config, _datos;
   bool _ocupado = false, _ciega = true;
+  bool _cambiosPendientes = false;
   String? _error;
   @override
   void initState() {
@@ -107,6 +45,7 @@ class _EstudioDocenteState extends State<EstudioDocente> {
         setState(() {
           _config = valores[0];
           _datos = valores[1];
+          _cambiosPendientes = false;
         });
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
@@ -131,6 +70,7 @@ class _EstudioDocenteState extends State<EstudioDocente> {
         ])
           k: _config![k],
       });
+      if (mounted) setState(() => _cambiosPendientes = false);
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -438,6 +378,10 @@ class _EstudioDocenteState extends State<EstudioDocente> {
       Wrap(
         spacing: 12,
         children: [
+          FilledButton(
+            onPressed: _ocupado || _config == null ? null : _configurar,
+            child: const Text('Guardar cambios'),
+          ),
           for (final fase in ['pre', 'post'])
             OutlinedButton.icon(
               onPressed: () => abrirVistaPreviaEvaluacion(context, fase),
@@ -447,6 +391,14 @@ class _EstudioDocenteState extends State<EstudioDocente> {
               ),
             ),
         ],
+      ),
+      Padding(
+        padding: const EdgeInsets.all(8),
+        child: Text(
+          _cambiosPendientes
+              ? 'Cambios pendientes: pulsa Guardar cambios para aplicarlos a los estudiantes.'
+              : 'Abre o cierra las evaluaciones, guarda los cambios y asigna la fase en la fila de cada estudiante. Las vistas previas te permiten ver las preguntas sin participar como alumno.',
+        ),
       ),
       if (_error != null)
         Padding(
@@ -472,7 +424,7 @@ class _EstudioDocenteState extends State<EstudioDocente> {
                       padding: EdgeInsets.all(12),
                       child: Text(
                         '1. Activa el estudio, abre el pretest y asigna a cada estudiante su grupo y fase Pretest.\n'
-                        '2. Tras la entrega del pretest, cambia su fase a Intervención: andamiaje o generación directa según su grupo. Las tareas practican las mismas competencias con datos diferentes.\n'
+                        '2. Tras la entrega del pretest, cambia su fase a Intervención: andamiaje o generación directa según su grupo. Se utilizan los módulos y Retos Curriculares existentes.\n'
                         '3. Cuando termine la práctica, abre el postest y cambia su fase a Postest. Ambos tests se responden sin IA.\n'
                         '4. Revisa las entregas con la rúbrica y exporta los resultados. El selector superior de tu cuenta solo cambia tu exploración local; los grupos de estudiantes se asignan aquí.',
                       ),
@@ -494,7 +446,10 @@ class _EstudioDocenteState extends State<EstudioDocente> {
                       value: _config![entrada.key] == true,
                       onChanged: _ocupado
                           ? null
-                          : (v) => setState(() => _config![entrada.key] = v),
+                          : (v) => setState(() {
+                              _config![entrada.key] = v;
+                              _cambiosPendientes = true;
+                            }),
                     ),
                   const Text(
                     'Selecciona las preguntas para los nuevos pretests. Cada postest conserva las competencias de su pretest. Los instrumentos iniciados no cambian.',
@@ -520,12 +475,9 @@ class _EstudioDocenteState extends State<EstudioDocente> {
                                 ids.remove(p['id']);
                               }
                               _config!['preguntas_activas'] = ids;
+                              _cambiosPendientes = true;
                             }),
                     ),
-                  FilledButton(
-                    onPressed: _ocupado ? null : _configurar,
-                    child: const Text('Aplicar activación y preguntas'),
-                  ),
                   const Divider(),
                   const Text(
                     'Participantes y avance · solo notas humanas, no inferencias de la IA',
@@ -536,7 +488,7 @@ class _EstudioDocenteState extends State<EstudioDocente> {
                         '${u['nombre']} · ${u['seudonimo']}${u['demostracion'] == true ? ' · DEMOSTRACIÓN' : ''}',
                       ),
                       subtitle: Text(
-                        '${u['condicion'] ?? 'sin grupo'} · ${u['fase'] ?? 'sin fase'}\n${_avance(u['comparacion'] as Map)}',
+                        '${u['condicion'] ?? 'sin grupo'} · Fase: ${u['fase'] ?? 'sin asignar'}\nPretest: ${u['pre_estado'] ?? 'sin iniciar'} · Postest: ${u['post_estado'] ?? 'sin iniciar'}\n${_avance(u['comparacion'] as Map)}',
                       ),
                       trailing: Wrap(
                         spacing: 8,

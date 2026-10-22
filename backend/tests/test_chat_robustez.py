@@ -20,6 +20,16 @@ def test_importacion_inexistente_se_detecta_sin_ejecutar_el_programa():
     assert 'round(1.67)' in _codigo_directo('```python\nprint(round(1.67))\n```', None)
 
 
+def test_no_ignora_una_entrada_que_se_pidio_mostrar():
+    import re
+    from app.routes.herramientas import _exec_sandbox
+    respuesta = _codigo_directo('```python\nnombre=input("Nombre: ")\nprint(22)\n```', None, 'Pide el nombre y muestra el nombre y la edad.')
+    codigo = re.search(r'```python\n(.*?)```', respuesta, re.S).group(1)
+    resultado = _exec_sandbox(codigo, stdin_texto='Lucía\n', timeout_segundos=3)
+    assert resultado.exit_code == 0
+    assert 'Lucía' in resultado.stdout and '22' in resultado.stdout
+
+
 @pytest.mark.asyncio
 async def test_andamiaje_ancla_codigo_del_estudiante_aunque_modelo_no_lo_repita(monkeypatch):
     monkeypatch.setattr(motor, 'esta_disponible', lambda: True)

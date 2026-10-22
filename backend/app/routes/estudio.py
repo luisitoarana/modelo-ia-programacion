@@ -208,6 +208,8 @@ async def resumen(_u: Docente, db: DB):
         participantes.append(dict(usuario_id=str(u.id), nombre=u.nombre, email=u.email,
                                   seudonimo='P-' + u.id.hex[:8], demostracion=u.email == 'demo.estudiante@example.org',
                                   condicion=a.condicion if a else None, fase=a.fase if a else None,
+                                  pre_estado=propias['pre'].estado if 'pre' in propias else 'sin iniciar',
+                                  post_estado=propias['post'].estado if 'post' in propias else 'sin iniciar',
                                   comparacion=comparar(propias.get('pre'), propias.get('post'))))
     return dict(participantes=participantes, entregas=[serializar(e, True) for e in entregas], version=VERSION)
 

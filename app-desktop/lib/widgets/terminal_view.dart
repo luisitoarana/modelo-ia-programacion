@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../providers.dart';
 import '../services/fs_local.dart';
+import '../services/proceso_interactivo.dart';
 import '../theme.dart';
 
 /// Una línea del historial de la terminal interactiva.
@@ -93,6 +94,7 @@ class TerminalView extends StatefulWidget {
   final VoidCallback? onIrASalida;
   final VoidCallback? onIrAProblemas;
   final int contadorProblemas;
+  final ValueChanged<String>? onCorregirError;
   const TerminalView({
     super.key,
     this.cwdInicial,
@@ -100,6 +102,7 @@ class TerminalView extends StatefulWidget {
     this.onIrASalida,
     this.onIrAProblemas,
     this.contadorProblemas = 0,
+    this.onCorregirError,
   });
 
   @override
@@ -115,6 +118,8 @@ class TerminalViewState extends State<TerminalView> {
   int _indiceHistorial = -1;
   String? _cwd;
   bool _ejecutando = false;
+  ProcesoInteractivo? _proceso;
+  String _errorActual = '';
   late final _ShellInfo _shell;
 
   @override
@@ -137,15 +142,16 @@ class TerminalViewState extends State<TerminalView> {
 
     // Mensaje de bienvenida oficial de PowerShell / Terminal
     if (Platform.isWindows) {
-      _historial.add(_Linea(
-        'Windows PowerShell\nCopyright (C) Microsoft Corporation. Todos los derechos reservados.\n\nInstala la versión más reciente de PowerShell para nuevas características: https://aka.ms/PSWindows\n',
-        esInfo: true,
-      ));
+      _historial.add(
+        _Linea(
+          'Windows PowerShell\nCopyright (C) Microsoft Corporation. Todos los derechos reservados.\n\nInstala la versión más reciente de PowerShell para nuevas características: https://aka.ms/PSWindows\n',
+          esInfo: true,
+        ),
+      );
     } else {
-      _historial.add(_Linea(
-        'Terminal de sistema lista (${_shell.nombre}).\n',
-        esInfo: true,
-      ));
+      _historial.add(
+        _Linea('Terminal de sistema lista (${_shell.nombre}).\n', esInfo: true),
+      );
     }
   }
 
@@ -156,8 +162,8 @@ class TerminalViewState extends State<TerminalView> {
     }
     try {
       if (!kIsWeb) {
-        final home = Platform.environment['USERPROFILE'] ??
-            Platform.environment['HOME'];
+        final home =
+            Platform.environment['USERPROFILE'] ?? Platform.environment['HOME'];
         if (home != null && home.isNotEmpty) {
           _cwd = home;
         }
@@ -181,6 +187,7 @@ class TerminalViewState extends State<TerminalView> {
 
   @override
   void dispose() {
+    _proceso?.detener();
     _ctrl.dispose();
     _scroll.dispose();
     _focus.dispose();
@@ -201,7 +208,9 @@ class TerminalViewState extends State<TerminalView> {
     }
 
     if (base == 'pwd') {
-      setState(() => _historial.add(_Linea(_cwd ?? '(sin carpeta de trabajo)')));
+      setState(
+        () => _historial.add(_Linea(_cwd ?? '(sin carpeta de trabajo)')),
+      );
       return true;
     }
 
@@ -224,10 +233,11 @@ class TerminalViewState extends State<TerminalView> {
 
   void _cambiarCwd(String destino) {
     if (_cwd == null && !_esAbsoluta(destino)) {
-      setState(() => _historial.add(_Linea(
-            'cd: Ruta no válida o relativa sin base.',
-            esError: true,
-          )));
+      setState(
+        () => _historial.add(
+          _Linea('cd: Ruta no válida o relativa sin base.', esError: true),
+        ),
+      );
       return;
     }
     String nueva;
@@ -255,8 +265,7 @@ class TerminalViewState extends State<TerminalView> {
 
   String _padre(String ruta) {
     final sep = ruta.contains('\\') ? '\\' : '/';
-    final partes = ruta.split(RegExp(r'[/\\]'))
-      ..removeWhere((s) => s.isEmpty);
+    final partes = ruta.split(RegExp(r'[/\\]'))..removeWhere((s) => s.isEmpty);
     if (partes.length <= 1) {
       return ruta.contains(':') ? '${partes.first}$sep' : sep;
     }
@@ -266,6 +275,25 @@ class TerminalViewState extends State<TerminalView> {
   }
 
   Future<void> _ejecutar() async {
+    if (_ejecutando) {
+      if (_proceso == null) return;
+      final entrada = _ctrl.text;
+      try {
+        _proceso!.enviar(entrada);
+        setState(() => _historial.add(_Linea(entrada)));
+        _ctrl.clear();
+        _focus.requestFocus();
+        _scrollAlFinal();
+      } catch (e) {
+        if (mounted)
+          setState(
+            () => _historial.add(
+              _Linea('No se pudo enviar la entrada: $e', esError: true),
+            ),
+          );
+      }
+      return;
+    }
     final cmd = _ctrl.text.trim();
     if (cmd.isEmpty || _ejecutando) return;
     _ctrl.clear();
@@ -279,8 +307,11 @@ class TerminalViewState extends State<TerminalView> {
         cmdLower == 'pwd' ||
         cmdLower == 'clear' ||
         cmdLower == 'cls') {
-      setState(() => _historial
-          .add(_Linea(cmd, prompt: promptAlLanzar, esComando: true)));
+      setState(
+        () => _historial.add(
+          _Linea(cmd, prompt: promptAlLanzar, esComando: true),
+        ),
+      );
       _manejarComandoLocal(cmd);
       _scrollAlFinal();
       return;
@@ -292,15 +323,78 @@ class TerminalViewState extends State<TerminalView> {
     });
     _scrollAlFinal();
 
-    final r = await ejecutarComandoLocal(cmd, cwd: _cwd);
-    if (!mounted) return;
+    await _seguirProceso(ProcesoInteractivo.comando(cmd, cwd: _cwd));
+  }
+
+  Future<void> ejecutarCodigoPython(String codigo) async {
+    if (_ejecutando) return;
+    _ctrl.clear();
     setState(() {
-      if (r.salida.isNotEmpty) {
-        _historial.add(_Linea(r.salida, esError: r.codigo != 0));
-      }
-      _ejecutando = false;
+      _ejecutando = true;
+      _historial.add(
+        _Linea(
+          'Ejecutando el código actual del editor. Escribe cada respuesta abajo y pulsa Enter.',
+          esInfo: true,
+        ),
+      );
     });
-    _scrollAlFinal();
+    await _seguirProceso(ProcesoInteractivo.python(codigo, cwd: _cwd));
+  }
+
+  Future<void> _seguirProceso(Future<ProcesoInteractivo> inicio) async {
+    ProcesoInteractivo? proceso;
+    try {
+      proceso = await inicio;
+      if (!mounted) {
+        proceso.detener();
+        await proceso.finalizado;
+        return;
+      }
+      _proceso = proceso;
+      _errorActual = '';
+      _focus.requestFocus();
+      void recibir(String texto, bool error) {
+        if (!mounted) return;
+        if (error) _errorActual += texto;
+        setState(() => _historial.add(_Linea(texto, esError: error)));
+        _scrollAlFinal();
+      }
+
+      int? codigo;
+      await Future.wait([
+        proceso.salida.forEach((texto) => recibir(texto, false)),
+        proceso.errores.forEach((texto) => recibir(texto, true)),
+        proceso.finalizado.then((valor) {
+          codigo = valor;
+        }),
+      ]);
+      if (mounted)
+        setState(
+          () => _historial.add(
+            _Linea(
+              'Proceso finalizado · código $codigo',
+              esError: codigo != 0,
+              esInfo: codigo == 0,
+            ),
+          ),
+        );
+    } catch (e) {
+      proceso?.detener();
+      if (mounted)
+        setState(
+          () =>
+              _historial.add(_Linea('No se pudo ejecutar: $e', esError: true)),
+        );
+    } finally {
+      await proceso?.finalizado;
+      await proceso?.limpiar();
+      _proceso = null;
+      if (mounted) {
+        setState(() => _ejecutando = false);
+        _focus.requestFocus();
+        _scrollAlFinal();
+      }
+    }
   }
 
   void _scrollAlFinal() {
@@ -318,12 +412,13 @@ class TerminalViewState extends State<TerminalView> {
   void _historialArriba() {
     if (_comandosPrevios.isEmpty) return;
     setState(() {
-      _indiceHistorial =
-          (_indiceHistorial - 1).clamp(0, _comandosPrevios.length);
+      _indiceHistorial = (_indiceHistorial - 1).clamp(
+        0,
+        _comandosPrevios.length,
+      );
       if (_indiceHistorial < _comandosPrevios.length) {
         _ctrl.text = _comandosPrevios[_indiceHistorial];
-        _ctrl.selection =
-            TextSelection.collapsed(offset: _ctrl.text.length);
+        _ctrl.selection = TextSelection.collapsed(offset: _ctrl.text.length);
       }
     });
   }
@@ -331,14 +426,15 @@ class TerminalViewState extends State<TerminalView> {
   void _historialAbajo() {
     if (_comandosPrevios.isEmpty) return;
     setState(() {
-      _indiceHistorial =
-          (_indiceHistorial + 1).clamp(0, _comandosPrevios.length);
+      _indiceHistorial = (_indiceHistorial + 1).clamp(
+        0,
+        _comandosPrevios.length,
+      );
       if (_indiceHistorial >= _comandosPrevios.length) {
         _ctrl.clear();
       } else {
         _ctrl.text = _comandosPrevios[_indiceHistorial];
-        _ctrl.selection =
-            TextSelection.collapsed(offset: _ctrl.text.length);
+        _ctrl.selection = TextSelection.collapsed(offset: _ctrl.text.length);
       }
     });
   }
@@ -367,7 +463,10 @@ class TerminalViewState extends State<TerminalView> {
               onTap: () => _focus.requestFocus(),
               child: SingleChildScrollView(
                 controller: _scroll,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -385,7 +484,9 @@ class TerminalViewState extends State<TerminalView> {
                               width: 12,
                               child: CircularProgressIndicator(
                                 strokeWidth: 1.8,
-                                valueColor: AlwaysStoppedAnimation<Color>(p.primary),
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  p.primary,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -402,75 +503,82 @@ class TerminalViewState extends State<TerminalView> {
                       ),
 
                     // Línea activa del Prompt de PowerShell (exactamente igual a VS Code)
-                    if (!_ejecutando)
-                      Shortcuts(
-                        shortcuts: <ShortcutActivator, Intent>{
-                          const SingleActivator(LogicalKeyboardKey.arrowUp):
-                              const _HistArribaIntent(),
-                          const SingleActivator(LogicalKeyboardKey.arrowDown):
-                              const _HistAbajoIntent(),
-                          const SingleActivator(LogicalKeyboardKey.keyL, control: true):
-                              const _LimpiarIntent(),
-                        },
-                        child: Actions(
-                          actions: <Type, Action<Intent>>{
-                            _HistArribaIntent:
-                                CallbackAction<_HistArribaIntent>(onInvoke: (_) {
+                    Shortcuts(
+                      shortcuts: <ShortcutActivator, Intent>{
+                        const SingleActivator(LogicalKeyboardKey.arrowUp):
+                            const _HistArribaIntent(),
+                        const SingleActivator(LogicalKeyboardKey.arrowDown):
+                            const _HistAbajoIntent(),
+                        const SingleActivator(
+                          LogicalKeyboardKey.keyL,
+                          control: true,
+                        ): const _LimpiarIntent(),
+                      },
+                      child: Actions(
+                        actions: <Type, Action<Intent>>{
+                          _HistArribaIntent: CallbackAction<_HistArribaIntent>(
+                            onInvoke: (_) {
                               _historialArriba();
                               return null;
-                            }),
-                            _HistAbajoIntent:
-                                CallbackAction<_HistAbajoIntent>(onInvoke: (_) {
+                            },
+                          ),
+                          _HistAbajoIntent: CallbackAction<_HistAbajoIntent>(
+                            onInvoke: (_) {
                               _historialAbajo();
                               return null;
-                            }),
-                            _LimpiarIntent:
-                                CallbackAction<_LimpiarIntent>(onInvoke: (_) {
+                            },
+                          ),
+                          _LimpiarIntent: CallbackAction<_LimpiarIntent>(
+                            onInvoke: (_) {
                               _limpiar();
                               return null;
-                            }),
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.only(top: 2, bottom: 4),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _formatearPrompt(_cwd ?? '~'),
+                            },
+                          ),
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 2, bottom: 4),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _ejecutando
+                                    ? 'Entrada >'
+                                    : _formatearPrompt(_cwd ?? '~'),
+                                style: TextStyle(
+                                  fontFamily: AppFonts.monoFallback.first,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: _shell.color,
+                                  height: 1.45,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextField(
+                                  key: const ValueKey('terminal-entrada'),
+                                  controller: _ctrl,
+                                  focusNode: _focus,
+                                  autofocus: true,
+                                  maxLines: 1,
+                                  onSubmitted: (_) => _ejecutar(),
                                   style: TextStyle(
                                     fontFamily: AppFonts.monoFallback.first,
                                     fontSize: 12.5,
-                                    fontWeight: FontWeight.w600,
-                                    color: _shell.color,
+                                    color: p.codeText,
                                     height: 1.45,
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _ctrl,
-                                    focusNode: _focus,
-                                    autofocus: true,
-                                    maxLines: 1,
-                                    onSubmitted: (_) => _ejecutar(),
-                                    style: TextStyle(
-                                      fontFamily: AppFonts.monoFallback.first,
-                                      fontSize: 12.5,
-                                      color: p.codeText,
-                                      height: 1.45,
-                                    ),
-                                    decoration: const InputDecoration(
-                                      border: InputBorder.none,
-                                      isCollapsed: true,
-                                      contentPadding: EdgeInsets.zero,
-                                    ),
+                                  decoration: const InputDecoration(
+                                    border: InputBorder.none,
+                                    isCollapsed: true,
+                                    contentPadding: EdgeInsets.zero,
                                   ),
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
+                    ),
                   ],
                 ),
               ),
@@ -495,9 +603,7 @@ class TerminalViewState extends State<TerminalView> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: p.primary, width: 2),
-              ),
+              border: Border(bottom: BorderSide(color: p.primary, width: 2)),
             ),
             child: Text(
               'TERMINAL',
@@ -510,6 +616,12 @@ class TerminalViewState extends State<TerminalView> {
             ),
           ),
           const SizedBox(width: 12),
+          if (_ejecutando)
+            TextButton.icon(
+              onPressed: () => _proceso?.detener(),
+              icon: const Icon(Icons.stop, size: 14),
+              label: const Text('Detener'),
+            ),
           Tooltip(
             message: 'Registro y salida de ejecución del programa',
             child: InkWell(
@@ -545,13 +657,18 @@ class TerminalViewState extends State<TerminalView> {
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                         letterSpacing: 0.5,
-                        color: widget.onIrAProblemas != null ? p.muted : p.subtle,
+                        color: widget.onIrAProblemas != null
+                            ? p.muted
+                            : p.subtle,
                       ),
                     ),
                     if (widget.contadorProblemas > 0) ...[
                       const SizedBox(width: 5),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.danger,
                           borderRadius: BorderRadius.circular(8),
@@ -622,7 +739,11 @@ class TerminalViewState extends State<TerminalView> {
               borderRadius: BorderRadius.circular(4),
               child: Padding(
                 padding: const EdgeInsets.all(5),
-                child: Icon(Icons.delete_outline_rounded, size: 15, color: p.muted),
+                child: Icon(
+                  Icons.delete_outline_rounded,
+                  size: 15,
+                  color: p.muted,
+                ),
               ),
             ),
           ),
@@ -667,7 +788,10 @@ class TerminalViewState extends State<TerminalView> {
               const TextSpan(text: ' '),
               TextSpan(
                 text: linea.texto,
-                style: TextStyle(color: p.codeText, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: p.codeText,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
@@ -675,7 +799,8 @@ class TerminalViewState extends State<TerminalView> {
       );
     }
 
-    final esFallo = linea.esError ||
+    final esFallo =
+        linea.esError ||
         linea.texto.contains('Traceback') ||
         linea.texto.contains('Error:') ||
         linea.texto.contains('Exception:');
@@ -701,14 +826,24 @@ class TerminalViewState extends State<TerminalView> {
               padding: const EdgeInsets.only(top: 4, bottom: 4),
               child: InkWell(
                 onTap: () async {
+                  if (widget.onCorregirError != null) {
+                    widget.onCorregirError!(_errorActual.isEmpty ? linea.texto : _errorActual);
+                    return;
+                  }
                   setState(() {
-                    _historial.add(_Linea('🤖 Consultando al Asistente IA sobre este error…', esInfo: true));
+                    _historial.add(
+                      _Linea(
+                        '🤖 Consultando al Asistente IA sobre este error…',
+                        esInfo: true,
+                      ),
+                    );
                   });
                   _scrollAlFinal();
                   try {
                     final auth = context.read<AuthProvider>();
                     final settings = context.read<SettingsProvider>();
-                    final prompt = 'Explica brevemente y de forma didáctica en español este error de ejecución de la terminal y cómo resolverlo:\n```\n${linea.texto}\n```';
+                    final prompt =
+                        'Explica brevemente y de forma didáctica en español este error de ejecución de la terminal y cómo resolverlo:\n```\n${linea.texto}\n```';
                     final resp = await auth.api.mensajeRapido(
                       prompt,
                       idioma: settings.idioma,
@@ -718,35 +853,51 @@ class TerminalViewState extends State<TerminalView> {
                     );
                     if (!mounted) return;
                     setState(() {
-                      _historial.add(_Linea(
-                        '💡 Explicación del Asistente IA:\n${resp.mensajeAsistente.contenido.trim()}',
-                        esInfo: true,
-                      ));
+                      _historial.add(
+                        _Linea(
+                          '💡 Explicación del Asistente IA:\n${resp.mensajeAsistente.contenido.trim()}',
+                          esInfo: true,
+                        ),
+                      );
                     });
                     _scrollAlFinal();
                   } catch (e) {
                     if (!mounted) return;
                     setState(() {
-                      _historial.add(_Linea('Error al consultar al asistente: $e', esError: true));
+                      _historial.add(
+                        _Linea(
+                          'Error al consultar al asistente: $e',
+                          esError: true,
+                        ),
+                      );
                     });
                     _scrollAlFinal();
                   }
                 },
                 borderRadius: BorderRadius.circular(5),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.danger.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(5),
-                    border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+                    border: Border.all(
+                      color: AppColors.danger.withValues(alpha: 0.3),
+                    ),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.auto_awesome, size: 12, color: AppColors.danger),
+                      Icon(
+                        Icons.auto_awesome,
+                        size: 12,
+                        color: AppColors.danger,
+                      ),
                       const SizedBox(width: 5),
                       Text(
-                        'Explicar este error con IA',
+                        widget.onCorregirError != null ? 'Corregir archivo con IA' : 'Explicar este error con IA',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,

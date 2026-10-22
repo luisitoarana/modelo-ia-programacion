@@ -97,8 +97,6 @@ void main() {
     ], child: const MaterialApp(home: Scaffold(body: EvaluacionEstudio(vistaPrevia: 'post')))));
     await tester.pumpAndSettle();
     expect(find.textContaining('SIMULACIÓN DOCENTE'), findsOneWidget);
-    await tester.tap(find.text('Iniciar evaluación'));
-    await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('evaluacion-codigo-m1_1')), 'print(20)');
     await tester.ensureVisible(find.text('Guardar borrador'));
     await tester.tap(find.text('Guardar borrador'));

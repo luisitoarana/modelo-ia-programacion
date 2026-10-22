@@ -125,16 +125,17 @@ String _codigo(WidgetTester tester) => tester
 
 void main() {
   testWidgets(
-    'solo código: genera desde una tarea y aplica correcciones sucesivas en el mismo archivo',
+    'solo código: genera desde un reto curricular y aplica correcciones sucesivas en el mismo archivo',
     (tester) async {
       final api = _ApiEditor();
       await _montar(tester, api, soloCodigo: true);
       await _nuevo(tester, 'inicial.py');
-      await tester.ensureVisible(find.text('Práctica: generar código'));
-      await tester.tap(find.text('Práctica: generar código'));
+      await tester.ensureVisible(find.text('Retos Curriculares'));
+      await tester.tap(find.text('Retos Curriculares'));
       await tester.pumpAndSettle();
-      expect(find.text('Copiar consigna'), findsOneWidget);
-      await tester.tap(find.text('Generar código'));
+      expect(find.text('Copiar consigna'), findsWidgets);
+      expect(find.textContaining('Ver Pistas'), findsNothing);
+      await tester.tap(find.text('Generar código').first);
       await tester.pumpAndSettle();
       expect(_codigo(tester), 'print(2)');
       api.respuesta = '```python\nprint(3)\n```';

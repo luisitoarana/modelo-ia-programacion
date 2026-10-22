@@ -155,11 +155,6 @@ def ejecutar(
     env_minima = {k: v for k, v in env_minima.items() if v}
 
     input_str = stdin_texto
-    uso_simulado = False
-    if lenguaje.lower() in ("python", "py") and input_str is None and ("input(" in codigo or "readline(" in codigo):
-        # Valores de prueba didácticos automáticos para responder a input() sin fallar con EOFError
-        input_str = "10\n5\n2\n8\n1\n3\n4\n\n\n\n"
-        uso_simulado = True
 
     timeout_hit = False
     inicio = time.perf_counter()
@@ -170,13 +165,13 @@ def ejecutar(
             env=env_minima,
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             timeout=timeout_segundos,
             input=input_str if input_str is not None else None,
             stdin=subprocess.DEVNULL if input_str is None else None,
         )
         out, err, rc = proc.stdout, proc.stderr, proc.returncode
-        if uso_simulado and rc == 0:
-            out = "💡 [Entorno Educativo]: Se suministraron valores de prueba automáticos (10, 5) para responder a input().\n" + out
     except subprocess.TimeoutExpired as exc:
         timeout_hit = True
         out = exc.stdout.decode("utf-8", errors="replace") if exc.stdout else ""
